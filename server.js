@@ -1,28 +1,36 @@
 
 require("dotenv").config()
+require("colors")
 const path = require('path');
 const compression = require('compression');
 const express = require("express")
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
-const colors = require("colors")
 const fileUpload = require('express-fileupload');
 const { connectDB } = require("./config/db")
 const usersRoutes = require("./routes/userRoutes")
+const mailRoutes = require("./routes/mailRoutes")
 const {errorHandler} = require("./middleware/errorHandler")
+const { keycloak, memoryStore } = require('./helpers/keycloak-config');
+
+
 const cors = require('cors');
-
-
-
+const { SitemapStream, streamToPromise } = require('sitemap');
 
 //const App = require('../frontend/src/index.js'); // React uygulamanızı bu şekilde import edin
+
 
 
 const bodyParser = require("body-parser");
 const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
-app.use(cors())
+app.use(
+  cors({
+    origin: '*',
+    credentials: true, // if you need to allow cookies or other credentials
+  })
+);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.urlencoded({ extended: true })); // Form-data verisini almak için
@@ -31,10 +39,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(compression());
 // Middleware
 app.use(fileUpload({
-  //limits: { fileSize: 5 * 1024 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
   limits: { fileSize: 10 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
 }));
-
+app.use(keycloak.middleware());
 // Session middleware'i ayarlama
 /* app.use(session({
   secret: process.env.SESSION_SECRET_KEY,  // Güçlü ve gizli bir anahtar belirleyin
@@ -50,12 +57,12 @@ app.use(fileUpload({
     secure: process.env.NODE_ENV === "development" ? false : true, // true ise sadece HTTPS üzerinden gönderilir; geliştirme ortamında false olabilir
     maxAge: 14 * 24 * 60 * 60 * 1000  // Çerez süresi (milisaniye cinsinden)
   }
-}));
- */
+})); */
+
 //user
 app.use("/api/v10/users", usersRoutes)
 
-
+app.use("/api/v10/mail", mailRoutes)
 
 /* app.get('/sitemap.xml', (req, res) => {
   res.header('Content-Type', 'application/xml');
@@ -79,10 +86,7 @@ app.use("/api/v10/users", usersRoutes)
   pages.forEach(page => {
     sitemap.write({ url: page.url, changefreq: 'monthly', priority: 0.7 });
   });
-  
-
   sitemap.end();
-
   streamToPromise(pipeline).then(sm => res.send(sm)).catch(console.error);
 }); */
 
@@ -104,6 +108,9 @@ if (process.env.NODE_ENV === "production") {
 } else {
   app.get("/", (req, res) => {
     res.send("Please set a production mode")
+  })
+  app.get("/api", (req, res) => {
+    res.send("api works successfully")
   })
 }
 
