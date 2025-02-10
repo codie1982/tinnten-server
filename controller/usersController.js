@@ -10,10 +10,12 @@ const User = require("../models/userModel.js");
 //helper
 const ApiResponse = require("../helpers/response.js")
 const CONSTANT = require("../constant/users/constant.js")
-const KEYCLOAK_BASE_URL = "http://localhost:8080"; // Keycloak URL
-const REALM = "tinnten-realm"; // Keycloak Realm adı
-const CLIENT_ID = "tinnten-client"; // Keycloak Client ID
-const CLIENT_SECRET = "y3P6T54oFpneKZQZdibTmdbKNXSPUwrQ"; // Client Secret (Confidential Clients için)
+
+
+const KEYCLOAK_BASE_URL = process.env.KEYCLOAK_BASE_URL; // Keycloak URL
+const REALM = process.env.REALM; // Keycloak Realm adı
+const CLIENT_ID = process.env.CLIENT_ID; // Keycloak Client ID
+const CLIENT_SECRET = process.env.CLIENT_SECRET; // Client Secret (Confidential Clients için)
 
 // **Kullanıcı kaydı oluşturma**
 const register = asyncHandler(async (req, res) => {
@@ -51,9 +53,9 @@ const register = asyncHandler(async (req, res) => {
     const adminTokenResponse = await axios.post(
       `${KEYCLOAK_BASE_URL}/realms/master/protocol/openid-connect/token`,
       new URLSearchParams({
-        client_id: "admin-cli",
-        username: "admin",
-        password: "admin",
+        client_id: process.env.ADMIN_CLIENT_ID,
+        username: process.env.ADMIN_USERNAME,
+        password: process.env.ADMIN_PASSWORD,
         grant_type: "password"
       })
     );
@@ -99,7 +101,7 @@ const register = asyncHandler(async (req, res) => {
       { headers: { Authorization: `Bearer ${adminAccessToken}` } }
     );
 
-    console.log("createUserResponse", createUserResponse.data)
+
     if (createUserResponse.status === 201) {
       console.log("Keycloak User Created Successfully!");
       // **5️⃣ Kullanıcıya E-Posta Aktivasyon Bağlantısı Gönder (Opsiyonel)**
@@ -120,19 +122,24 @@ const register = asyncHandler(async (req, res) => {
 
       const { access_token, refresh_token } = tokenResponse.data;
 
+      // ✅ Refresh Token'ı Cookie'ye yaz
+      res.cookie('refresh_token', refresh_token, {
+        httpOnly: true,     // XSS saldırılarına karşı koruma
+        secure: false,      // HTTPS kullanıyorsan true yap
+        sameSite: 'Lax',     // Cross-site istekleri için uygun
+        path: '/',
+      });
+
       // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
       const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
         headers: { Authorization: `Bearer ${access_token}` }
       });
-      console.log("userInfoResponse", userInfoResponse.data)
 
       // **2️⃣ Kullanıcı ID'sini al**
       const usersResponse = await axios.get(
         `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users?email=${email}`,
         { headers: { Authorization: `Bearer ${adminAccessToken}` } }
       );
-
-
 
       if (usersResponse.data.length === 0) {
         return res.status(400).json(ApiResponse.error({}, 400, "Kullanıcı bulunamadı."));
@@ -148,10 +155,9 @@ const register = asyncHandler(async (req, res) => {
           {},
           { headers: { Authorization: `Bearer ${adminAccessToken}` } }
         );
-        console.log("emailResponse", emailResponse.data)
+
       } catch (error) {
         console.log("emailResponse error", error.response ? error.response.data : error.message);
-
       }
 
       if (emailResponse.data.length === 0) {
@@ -177,7 +183,235 @@ const register = asyncHandler(async (req, res) => {
   }
 });
 
+// **Kullanıcı Profili oluşturma**
+const userProfil = asyncHandler(async (req, res) => {
+  const { firstname, lastname, } = req.body;
 
+  try {
+
+
+
+
+    // **1️⃣ Geçerlilik Kontrolleri**
+    if (!email || !password) {
+      return res.status(400).json(ApiResponse.error({}, 400, "Lütfen tüm alanları doldurun."));
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json(ApiResponse.error(400, "Şifre en az 8 karakter olmalıdır", {}));
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json(ApiResponse.error({}, 400, "Geçerli bir e-posta adresi girin."));
+    }
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json(ApiResponse.error(400, "Şifre en az bir büyük harf, bir küçük harf, bir sayı ve özel karakter içermelidir", {}));
+    }
+
+    // **2️⃣ Keycloak Admin Token Al**
+    const adminTokenResponse = await axios.post(
+      `${KEYCLOAK_BASE_URL}/realms/master/protocol/openid-connect/token`,
+      new URLSearchParams({
+        client_id: process.env.ADMIN_CLIENT_ID,
+        username: process.env.ADMIN_USERNAME,
+        password: process.env.ADMIN_PASSWORD,
+        grant_type: "password"
+      })
+    );
+    const adminAccessToken = adminTokenResponse.data.access_token;
+
+    // **3️⃣ Kullanıcının Var Olup Olmadığını Kontrol Et (Keycloak API)**
+    try {
+      const existingUserResponse = await axios.get(
+        `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users?email=${email}`,
+        { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+      );
+
+      if (existingUserResponse.data.length > 0) {
+        return res.status(400).json(ApiResponse.error({}, 400, "Bu e-posta adresi zaten kayıtlı."));
+      }
+    } catch (error) {
+      console.error("User existence check failed:", error.response ? error.response.data : error.message);
+    }
+
+    // **4️⃣ Keycloak Üzerinde Yeni Kullanıcı Oluştur**
+    const createUserResponse = await axios.post(
+      `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users`,
+      {
+        email,
+        username: email, // Keycloak username yerine e-posta kullanıyor.
+        enabled: true,
+        emailVerified: false,
+        requiredActions: [],
+        credentials: [
+          {
+            type: "password",
+            value: password,
+            temporary: false
+          }
+        ],
+        attributes: {
+          device,
+          provider,
+          userAgent,
+          ip
+        }
+      },
+      { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+    );
+
+
+    if (createUserResponse.status === 201) {
+      console.log("Keycloak User Created Successfully!");
+      // **5️⃣ Kullanıcıya E-Posta Aktivasyon Bağlantısı Gönder (Opsiyonel)**
+      await sendDeviceChangeEmail(email, "Kullancı Adı", new Date(), device, userAgent, ip);
+
+      // **6️⃣ Kullanıcı Otomatik Olarak Oturum Açsın (Access Token & Refresh Token Al)**
+      const tokenResponse = await axios.post(
+        `${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/token`,
+        new URLSearchParams({
+          client_id: CLIENT_ID,
+          client_secret: CLIENT_SECRET,
+          username: email,
+          password: password,
+          grant_type: "password",
+          scope: "openid email profile"
+        })
+      );
+
+      const { access_token, refresh_token } = tokenResponse.data;
+
+      // ✅ Refresh Token'ı Cookie'ye yaz
+      res.cookie('refresh_token', refresh_token, {
+        httpOnly: true,     // XSS saldırılarına karşı koruma
+        secure: false,      // HTTPS kullanıyorsan true yap
+        sameSite: 'Lax',     // Cross-site istekleri için uygun
+        path: '/',
+      });
+
+      // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
+      const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
+        headers: { Authorization: `Bearer ${access_token}` }
+      });
+
+      // **2️⃣ Kullanıcı ID'sini al**
+      const usersResponse = await axios.get(
+        `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users?email=${email}`,
+        { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+      );
+
+      if (usersResponse.data.length === 0) {
+        return res.status(400).json(ApiResponse.error({}, 400, "Kullanıcı bulunamadı."));
+      }
+
+      const userId = usersResponse.data[0].id;
+      const emailResponse = { data: [] };
+
+      try {
+        // **3️⃣ Kullanıcıya e-posta doğrulama linki gönder**
+        emailResponse = await axios.put(
+          `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users/${userId}/send-verify-email`,
+          {},
+          { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+        );
+
+      } catch (error) {
+        console.log("emailResponse error", error.response ? error.response.data : error.message);
+      }
+
+      if (emailResponse.data.length === 0) {
+        return res.status(201).json(ApiResponse.success(201, "Kaydınız başarı ile yapıldı. Oturum açıldı. E-posta doğrulama bağlantısı gönderilemedi. Mail doğrulamanızı daha sonra yapabilirsiniz.", {
+          access_token,
+          refresh_token,
+          user: userInfoResponse.data,
+        }));
+      } else {
+        return res.status(201).json(ApiResponse.success(201, "Kaydınız başarı ile yapıldı. Oturum açıldı. E-posta doğrulama bağlantısı gönderildi", {
+          access_token,
+          refresh_token,
+          user: userInfoResponse.data,
+        }));
+      }
+    }
+
+    return res.status(400).json(ApiResponse.error(400, "Kullanıcı oluşturulamadı", {}));
+
+  } catch (err) {
+    console.error("Register Error:", err.response ? err.response.data : err.message);
+    return res.status(500).json(ApiResponse.error({}, 500, "Veritabanı hatası: " + err.message));
+  }
+});
+
+// **Kullanıcı Profili oluşturma**
+const userImage = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  const { firstname, lastname, } = req.body;
+  if (!req.file) {
+    const profileImageUrl = req.file.filename;
+
+  }
+  try {
+    // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
+    const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+
+
+
+
+
+
+
+
+
+
+
+    const { access_token, refresh_token } = tokenResponse.data;
+
+
+
+
+    // **2️⃣ Kullanıcı ID'sini al**
+    const usersResponse = await axios.get(
+      `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users?email=${email}`,
+      { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+    );
+
+    if (usersResponse.data.length === 0) {
+      return res.status(400).json(ApiResponse.error({}, 400, "Kullanıcı bulunamadı."));
+    }
+
+    const userId = usersResponse.data[0].id;
+    const emailResponse = { data: [] };
+
+    try {
+      // **3️⃣ Kullanıcıya e-posta doğrulama linki gönder**
+      emailResponse = await axios.put(
+        `${KEYCLOAK_BASE_URL}/admin/realms/${REALM}/users/${userId}/send-verify-email`,
+        {},
+        { headers: { Authorization: `Bearer ${adminAccessToken}` } }
+      );
+
+    } catch (error) {
+      console.log("emailResponse error", error.response ? error.response.data : error.message);
+    }
+
+    return res.status(200).json(ApiResponse.success(200, "Profil resmi başarı ile eklendi", {
+      access_token,
+      refresh_token,
+      user: userInfoResponse.data,
+    }));
+
+
+
+  } catch (err) {
+    console.error("Register Error:", err.response ? err.response.data : err.message);
+    return res.status(500).json(ApiResponse.error({}, 500, "Veritabanı hatası: " + err.message));
+  }
+});
 
 //access public
 const login = asyncHandler(async (req, res) => {
@@ -203,21 +437,27 @@ const login = asyncHandler(async (req, res) => {
 
     const { access_token, refresh_token, id_token } = tokenResponse.data;
 
-    console.log("tokenResponse", tokenResponse.data)
+    // ✅ Refresh Token'ı Cookie'ye yaz
+    res.cookie('refresh_token', refresh_token, {
+      httpOnly: true,     // XSS saldırılarına karşı koruma
+      secure: false,      // HTTPS kullanıyorsan true yap
+      sameSite: 'Lax',     // Cross-site istekleri için uygun
+      path: '/',
+    });
+
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
     const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
       headers: { Authorization: `Bearer ${access_token}` }
     });
-    console.log("userInfoResponse", userInfoResponse.data)
     const userId = userInfoResponse.data.sub;
 
     // **3️⃣ Admin Token Al**
     const adminTokenResponse = await axios.post(
       `${KEYCLOAK_BASE_URL}/realms/master/protocol/openid-connect/token`,
       new URLSearchParams({
-        client_id: "admin-cli",
-        username: "admin",
-        password: "admin",
+        client_id: process.env.ADMIN_CLIENT_ID,
+        username: process.env.ADMIN_USERNAME,
+        password: process.env.ADMIN_PASSWORD,
         grant_type: "password"
       })
     );
@@ -292,31 +532,9 @@ const login = asyncHandler(async (req, res) => {
   }
 });
 
-
 //access public
 const info = asyncHandler(async (req, res) => {
   const access_token = req.kauth.grant.access_token.token;
-  console.log("access_token", access_token)
-  try {
-    // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
-    const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
-      headers: { Authorization: `Bearer ${access_token}` }
-    });
-
-    // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
-    return res.status(200).json(ApiResponse.success(200, "Kullanıcı bilgileri", {
-      message: "Kullanıcı bilgileri başarı ile alındı",
-      user: userInfoResponse.data,
-    }));
-
-  } catch (error) {
-    console.error("Login Error:", error.response?.data || error);
-    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
-  }
-});
-//access public
-const checksession = asyncHandler(async (req, res) => {
-  const access_token = req.kauth.grant.access_token.token;
 
   try {
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
@@ -335,6 +553,7 @@ const checksession = asyncHandler(async (req, res) => {
     return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
   }
 });
+
 const sendEmailVerification = asyncHandler(async (req, res) => {
   const { email } = req.body;
 
@@ -387,5 +606,5 @@ function isSingleWord(str) {
   return !str.includes(' ');
 }
 module.exports = {
-  register, login, info,checksession
+  register, login, info
 };

@@ -8,11 +8,16 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const fileUpload = require('express-fileupload');
 const { connectDB } = require("./config/db")
-const usersRoutes = require("./routes/userRoutes")
-const mailRoutes = require("./routes/mailRoutes")
+const cookieParser = require('cookie-parser');
+
 const {errorHandler} = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
 
+const authRouters = require("./routes/authRouters")
+const usersRoutes = require("./routes/userRoutes")
+const mailRoutes = require("./routes/mailRoutes")
+const conversationRoutes = require("./routes/conversationsRouters")
+const uploadRoutes = require("./routes/uploadRouters")
 
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
@@ -27,7 +32,7 @@ connectDB()
 const app = express()
 app.use(
   cors({
-    origin: '*',
+    origin: 'http://localhost:3000',
     credentials: true, // if you need to allow cookies or other credentials
   })
 );
@@ -37,6 +42,8 @@ app.use(express.urlencoded({ extended: true })); // Form-data verisini almak iç
 app.use(express.static(path.join(__dirname, 'public')));
 // GZIP sıkıştırmasını etkinleştir
 app.use(compression());
+
+app.use(cookieParser()); // ✅ Bu satır önemli
 // Middleware
 app.use(fileUpload({
   limits: { fileSize: 10 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
@@ -60,10 +67,12 @@ app.use(keycloak.middleware());
 })); */
 
 //user
+app.use("/api/v10/auth", authRouters)
 app.use("/api/v10/users", usersRoutes)
-
 app.use("/api/v10/mail", mailRoutes)
+app.use("/api/v10/conversation", conversationRoutes)
 
+app.use("/api/v10/upload", uploadRoutes)
 /* app.get('/sitemap.xml', (req, res) => {
   res.header('Content-Type', 'application/xml');
   res.header('Content-Encoding', 'gzip');
