@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const companySchema = new mongoose.Schema({
-  keycloakId: { type: String, required: true }, // Firma sahibinin Keycloak ID'si
+  userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", default: null }, // Firma sahibinin userid'si
   companyName: { type: String, required: [true, "Please add a Company Name"], default: "" },
   foundedDate: {
     type: Date,
@@ -24,7 +24,9 @@ const companySchema = new mongoose.Schema({
   accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
   employees: [{ keycloakId: { type: String, required: true } }], // Çalışanlar sadece Keycloak ID ile tutulur
   certifications: [{ type: String, default: "" }],
+
   products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],
+  services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],   // Sabit fiyatlı ve teklif gerektiren hizmetler
   documents: [documentSchema],
   galleries: [gallerySchema],
   contents: [contentSchema]

@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 // Teklif Talebi Şeması
-const locationSchema = new mongoose.Schema({
+const bidlocationSchema = new mongoose.Schema({
   country: { type: String, default: "" },                // Ülke
   city: { type: String, default: "" },                   // Şehir
   coordinates: {                                         // Koordinatlar (isteğe bağlı)
@@ -10,4 +10,4 @@ const locationSchema = new mongoose.Schema({
   }
 }, { timestamps: true });
 
-module.exports = locationSchema;
+module.exports = bidlocationSchema;
