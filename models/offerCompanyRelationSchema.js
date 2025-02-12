@@ -1,8 +1,8 @@
 const mongoose = require("mongoose");
 
 const offerCompanyRelationSchema = new mongoose.Schema({
-  offerRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "OfferRequest", required: true },
-  companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true },
+  offerRequestId: { type: mongoose.Schema.Types.ObjectId, ref: "offerrequest", required: true },
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: "company", required: true },
   status: {
     type: String,
     enum: ["invited", "viewed", "responded", "rejected"], // Firma ile ilişki durumu
@@ -10,4 +10,4 @@ const offerCompanyRelationSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-module.exports = bidlocationSchema;
+module.exports = offerCompanyRelationSchema;

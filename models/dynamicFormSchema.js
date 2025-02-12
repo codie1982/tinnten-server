@@ -3,10 +3,10 @@ const mongoose = require("mongoose");
 
 // 📦 Dinamik Teklif Formu Şeması
 const dynamicFormSchema = new mongoose.Schema({
-  companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true }, // Hangi firmaya ait?
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: "company", required: true }, // Hangi firmaya ait?
   formName: { type: String, required: true },                                         // Form adı
   description: { type: String, default: "" },                                         // Form açıklaması
-  fields: [formFieldSchema],                                                          // Formun alanları
+  fields: [ { type: mongoose.Schema.Types.ObjectId, ref: "formfield", required: true }],                                                          // Formun alanları
 },{timestamps:true});
 
 module.exports = dynamicFormSchema;

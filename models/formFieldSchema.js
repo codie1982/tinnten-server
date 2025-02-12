@@ -13,7 +13,7 @@ const formFieldSchema = new mongoose.Schema({
   options: [{                                                   // Seçimlik alanlar için seçenekler (dropdown, radio)
     label: { type: String },
     value: { type: String },
-    showFields: [{ type: mongoose.Schema.Types.ObjectId, ref: "FormField" }] // Bu seçildiğinde gösterilecek alanlar
+    showFields: [{ type: mongoose.Schema.Types.ObjectId, ref: "formfield" }] // Bu seçildiğinde gösterilecek alanlar
   }],
   placeholder: { type: String, default: "" },                   // Placeholder metni
 
@@ -24,7 +24,7 @@ const formFieldSchema = new mongoose.Schema({
   },
 
   dependencies: [{                                              // Bağlı olduğu alanlar
-    fieldId: { type: mongoose.Schema.Types.ObjectId, ref: "FormField" }, // Bağlı olduğu alanın ID'si
+    fieldid: { type: mongoose.Schema.Types.ObjectId, ref: "formfield" }, // Bağlı olduğu alanın ID'si
     condition: {                                                // Koşul: Eşitlik veya belirli bir değere göre
       operator: { type: String, enum: ["equals", "not_equals"], default: "equals" },
       value: { type: String }

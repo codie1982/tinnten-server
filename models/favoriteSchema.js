@@ -8,30 +8,31 @@ const favoriteSchema = new mongoose.Schema({
   },
   favoriteType: {
     type: String,
-    enum: ['album', 'performer', 'song'], // Favori içerik türleri
+    enum: ['product', 'services', 'company'], // Favori içerik türleri
     required: true
   },
-  album: {
+  product: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Album', // Albüm referansı
+    ref: 'product', // Albüm referansı
     required: function () {
-      return this.favoriteType === 'album';
+      return this.favoriteType === 'product';
     }
   },
-  performer: {
+  services: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Performer', // Performans sanatçısı referansı
+    ref: 'services', // Albüm referansı
     required: function () {
-      return this.favoriteType === 'performer';
+      return this.favoriteType === 'services';
     }
   },
-  song: {
+  company: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Song', // Şarkı referansı
+    ref: 'company', // Albüm referansı
     required: function () {
-      return this.favoriteType === 'song';
+      return this.favoriteType === 'company';
     }
   },
+
   createdAt: {
     type: Date,
     default: Date.now

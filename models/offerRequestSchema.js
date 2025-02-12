@@ -2,9 +2,9 @@ const mongoose = require("mongoose");
 
 // Teklif Talebi Şeması
 const offerRequestSchema = new mongoose.Schema({
-  requesterId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", default: null },
-  serviceId: { type: mongoose.Schema.Types.ObjectId, ref: "Service", default: null },
+  userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
+  productid: { type: mongoose.Schema.Types.ObjectId, ref: "product", default: null },
+  serviceid: { type: mongoose.Schema.Types.ObjectId, ref: "service", default: null },
   description: { type: String, default: "" },
 
   priceRange: {
@@ -22,12 +22,27 @@ const offerRequestSchema = new mongoose.Schema({
     }
   },
 
-  isGeneral: { type: Boolean, default: true },                // Genel mi, belirli firmalara mı?
+  isGeneral: { type: Boolean, default: true },                     // Genel mi, belirli firmalara mı?
+  targetCompanyId: { type: mongoose.Schema.Types.ObjectId, ref: "company", default: null },
+
+  dynamicFormId: { type: mongoose.Schema.Types.ObjectId, ref: "dynamicForm" },
+
+  // 🕰️ Teklif Süresi
+  offerDeadline: { type: Date, required: true },                  // Teklif verme için son tarih
+
+  // 📤 Bildirim Durumu
+  notificationStatus: {
+    type: String,
+    enum: ["pending", "sent", "failed"],
+    default: "pending"
+  },
+
   status: {
     type: String,
     enum: ["pending", "closed", "canceled"],
     default: "pending"
-  },
+  }
+
 }, { timestamps: true });
 
 module.exports = offerRequestSchema;

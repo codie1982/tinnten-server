@@ -26,10 +26,10 @@ const companySchema = new mongoose.Schema({
   certifications: [{ type: String, default: "" }],
 
   products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],
-  services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],   // Sabit fiyatlı ve teklif gerektiren hizmetler
-  documents: [documentSchema],
-  galleries: [gallerySchema],
-  contents: [contentSchema]
+  services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],   
+  documents: [{ type: mongoose.Schema.Types.ObjectId, ref: "documents", required: false }],
+  galleries: [{ type: mongoose.Schema.Types.ObjectId, ref: "gallery", required: false }],
+  contents: [{ type: mongoose.Schema.Types.ObjectId, ref: "content", required: false }]
 }, { timestamps: true });
 
 module.exports = companySchema;
