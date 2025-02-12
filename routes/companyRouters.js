@@ -1,10 +1,9 @@
 const express = require("express")
 const route = express.Router()
-const { uploadProfilImage } = require("../controller/uploadController")
+const { createCompanyProfile } = require("../controller/companyController")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 
 
 
-route.post("/upload/profil/image", keycloak.protect(), uploadProfilImage)
-
+route.post("/", keycloak.protect(), createCompanyProfile)
 module.exports = route

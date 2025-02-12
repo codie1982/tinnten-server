@@ -4,27 +4,29 @@ require("colors")
 const path = require('path');
 const compression = require('compression');
 const express = require("express")
-const session = require('express-session');
-const MongoStore = require('connect-mongo');
 const fileUpload = require('express-fileupload');
 const { connectDB } = require("./config/db")
 const cookieParser = require('cookie-parser');
 
-const {errorHandler} = require("./middleware/errorHandler")
+const { errorHandler } = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
 
 const authRouters = require("./routes/authRouters")
 const usersRoutes = require("./routes/userRoutes")
-const mailRoutes = require("./routes/mailRoutes")
+const companyRouters = require("./routes/companyRouters")
 const conversationRoutes = require("./routes/conversationsRouters")
 const uploadRoutes = require("./routes/uploadRouters")
+const packagesRoutes = require("./routes/packagesRoutes")
+const productRouters = require("./routes/productRouters")
+const servicesRouters = require("./routes/servicesRouters")
+const bidRequestRouters = require("./routes/bidRequestRouters")
+const bidResponseRouters = require("./routes/bidResponseRouters")
+const favoriteRouters = require("./routes/favoriteRouters")
 
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
 
 //const App = require('../frontend/src/index.js'); // React uygulamanızı bu şekilde import edin
-
-
 
 const bodyParser = require("body-parser");
 const PORT = process.env.PORT || 3000;
@@ -42,7 +44,6 @@ app.use(express.urlencoded({ extended: true })); // Form-data verisini almak iç
 app.use(express.static(path.join(__dirname, 'public')));
 // GZIP sıkıştırmasını etkinleştir
 app.use(compression());
-
 app.use(cookieParser()); // ✅ Bu satır önemli
 // Middleware
 app.use(fileUpload({
@@ -50,29 +51,31 @@ app.use(fileUpload({
 }));
 app.use(keycloak.middleware());
 // Session middleware'i ayarlama
-/* app.use(session({
-  secret: process.env.SESSION_SECRET_KEY,  // Güçlü ve gizli bir anahtar belirleyin
-  resave: false,  // Oturum verisi değişmediği sürece oturumu yeniden kaydetme
-  saveUninitialized: true,  // Boş oturumları kaydetme
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGO_URI, // MongoDB bağlantı URL'si
-    dbName: process.env.DB_SPOTSOUND,
-    collectionName: process.env.SESSION_COLLECTION,  // Oturum verilerinin saklanacağı koleksiyon adı
-    ttl: 14 * 24 * 60 * 60  // Oturumun sona erme süresi (14 gün)
-  }),
-  cookie: {
-    secure: process.env.NODE_ENV === "development" ? false : true, // true ise sadece HTTPS üzerinden gönderilir; geliştirme ortamında false olabilir
-    maxAge: 14 * 24 * 60 * 60 * 1000  // Çerez süresi (milisaniye cinsinden)
-  }
-})); */
 
 //user
 app.use("/api/v10/auth", authRouters)
+
 app.use("/api/v10/users", usersRoutes)
-app.use("/api/v10/mail", mailRoutes)
+
+app.use("/api/v10/company", companyRouters)
+
+app.use("/api/v10/package", packagesRoutes)
+
 app.use("/api/v10/conversation", conversationRoutes)
 
+app.use("/api/v10/products", productRouters)
+
+app.use("/api/v10/services", servicesRouters)
+//teklif isteme
+app.use("/api/v10/bid-request", bidRequestRouters)
+//teklif verme
+app.use("/api/v10/bid-response", bidResponseRouters)
+
+app.use("/api/v10/favorite", favoriteRouters)
+
 app.use("/api/v10/upload", uploadRoutes)
+
+
 /* app.get('/sitemap.xml', (req, res) => {
   res.header('Content-Type', 'application/xml');
   res.header('Content-Encoding', 'gzip');
