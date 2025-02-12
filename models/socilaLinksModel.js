@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
-var schema = require("./schema/socialSchema")
-module.exports = mongoose.model('social', schema);;
+var schema = require("./socialLinksSchema")
+module.exports = mongoose.model('sociallinks', schema);;

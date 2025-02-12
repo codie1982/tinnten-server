@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
-var schema = require("./schema/variantsSchema")
+var schema = require("./variantsSchema")
 module.exports = mongoose.model('variants', schema);;

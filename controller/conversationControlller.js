@@ -13,7 +13,7 @@ const CLIENT_ID = "tinnten-client"; // Keycloak Client ID
 const CLIENT_SECRET = "y3P6T54oFpneKZQZdibTmdbKNXSPUwrQ"; // Client Secret (Confidential Clients için)
 
 const User = require("../models/userModel")
-const Conversation = require("../models/conversitionModel");
+const Conversation = require("../models/conversationModel");
 
 
 const system_message = [

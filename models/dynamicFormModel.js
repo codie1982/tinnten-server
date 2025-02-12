@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
-var schema = require("./schema/dynamicFormSchema")
+var schema = require("./dynamicFormSchema")
 module.exports = mongoose.model('dynamicform', schema);;

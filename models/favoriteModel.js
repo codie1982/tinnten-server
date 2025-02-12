@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
-var schema = require("./schema/favoriteSchema")
+var schema = require("./favoriteSchema")
 module.exports = mongoose.model('favorite', schema);;

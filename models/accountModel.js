@@ -1,3 +1,3 @@
 const mongoose = require("mongoose");
-const accountSchema = require("./schema/accountSchema");
+const accountSchema = require("./accountSchema");
 module.exports = mongoose.model("accounts", accountSchema);

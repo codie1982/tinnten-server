@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
-var schema = require("./schema/contentSchema")
-module.exports = mongoose.model('companyprofil', schema);;
+var schema = require("./documentSchema")
+module.exports = mongoose.model('document', schema);;
