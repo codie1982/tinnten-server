@@ -1,13 +1,13 @@
 const express = require("express")
 const route = express.Router()
-const { refreshtoken,checksession} = require("../controller/authController")
+const { register, login, refreshtoken,logout } = require("../controller/authController")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
- 
 
 
+route.post("/login", login)
+route.post("/register", register)
 route.post("/refresh-token", refreshtoken)
-route.post("/checksession",keycloak.protect(), checksession)
-route.post("/logout",keycloak.protect(), checksession)
+route.post("/logout", keycloak.protect(), logout)
 
 
 module.exports = route

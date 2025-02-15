@@ -2,8 +2,7 @@ const express = require("express")
 const route = express.Router()
 const {
     createProfile,
-    getAllProfiles,
-    getProfileById,
+    getProfile,
     updateProfile,
     updatePhoneNumbers,
     updateAddresses,
@@ -12,16 +11,16 @@ const {
 } = require("../controller/profilController")
 
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
+const { checkRole } = require("../middleware/checkRole");
 
 
 
-route.post("/", keycloak.protect(), createProfile)
-route.get("/", keycloak.protect(), getAllProfiles)
-route.get("/:id", keycloak.protect(), getProfileById)
+route.post("/", keycloak.protect(), checkRole("admin"), createProfile)
+route.get("/", keycloak.protect(), getProfile)
 route.put("/", keycloak.protect(), updateProfile)
-route.put("/phone", keycloak.protect(), updatePhoneNumbers)
-route.put("/addres", keycloak.protect(), updateAddresses)
-route.put("/social", keycloak.protect(), updateSocialLinks)
-route.delete("/", keycloak.protect(), deleteProfile)
+route.put("/update-phones", keycloak.protect(), updatePhoneNumbers)
+route.put("/update-address", keycloak.protect(), updateAddresses)
+route.put("/update-social-links", keycloak.protect(), updateSocialLinks)
+route.delete("/", keycloak.protect(), checkRole("admin"), deleteProfile)
 
 module.exports = route

@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const userSchema = new mongoose.Schema({
-  subid: { type: String },
+  keyid: { type: String, required: true },
 }, { timestamps: true });
 
 module.exports = userSchema;

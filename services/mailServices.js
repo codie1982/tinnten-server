@@ -9,12 +9,7 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendEmail({ to, subject, message }) {
-  await transporter.sendMail({
-    from: 'youremail@gmail.com',
-    to,
-    subject,
-    text: message
-  });
+  console.log("sendEmail", to, subject, message)
 }
 
 module.exports = { sendEmail };

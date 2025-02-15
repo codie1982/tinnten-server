@@ -155,14 +155,14 @@ const updateAddresses = asyncHandler(async (req, res) => {
 // **Sosyal Linkleri Güncelleme**
 const updateSocialLinks = asyncHandler(async (req, res) => {
   try {
-    const { socialLinks } = req.body;
-    if (typeof socialLinks !== 'object' || Array.isArray(socialLinks)) {
+    const { sociallinks } = req.body;
+    if (typeof sociallinks !== 'object' || Array.isArray(sociallinks)) {
       return res.status(400).json(ApiResponse.error({}, 400, "Sosyal linkler geçerli bir nesne olmalıdır."));
     }
 
     const updatedProfile = await Profile.findByIdAndUpdate(
       req.params.id,
-      { $set: { socialLinks } },
+      { $set: { sociallinks } },
       { new: true }
     );
 

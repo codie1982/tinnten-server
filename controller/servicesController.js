@@ -1,11 +1,12 @@
 const asyncHandler = require("express-async-handler");
 const { v4: uuidv4 } = require('uuid');
-const Services = require("../models/servicesModel")
+const Service = require("../models/servicesModel")
+const Price = require("../models/priceModel")
+const Image = require("../models/imagesModel")
 const ApiResponse = require("../helpers/response")
-const { validateNamePath } = require("../helpers/validatename")
 
 
-const getServices = asyncHandler(async (req, res) => {
+const getService = asyncHandler(async (req, res) => {
   try {
     const packages = await Services.find({ delete: false, active: true }, (["-delete", "-active", "-google_channel", "-appel_channel"]))
     if (packages.length > 0) {
@@ -24,11 +25,59 @@ const getServices = asyncHandler(async (req, res) => {
   }
 });
 
+const addService = asyncHandler(async (req, res) => {
+  try {
+    const {
+      companyid, name, description, categories, features, duration, price, gallery,
+      isLocationBased, location
+    } = req.body;
+
+    // **Fiyat Bilgisini Kaydetme**
+    let priceId = null;
+    if (price) {
+      const newPrice = new Price(price);
+      await newPrice.save();
+      priceId = newPrice._id;
+    }
+
+    // **Görselleri Kaydetme**
+    let galleryIds = [];
+    if (gallery && Array.isArray(gallery)) {
+      for (let image of gallery) {
+        const newImage = new Image(image);
+        await newImage.save();
+        galleryIds.push(newImage._id);
+      }
+    }
+
+    // **Yeni Hizmeti Kaydetme**
+    const newService = new Service({
+      companyid,
+      name,
+      description,
+      categories,
+      features,
+      duration,
+      price: priceId,
+      gallery: galleryIds,
+      isLocationBased,
+      location
+    });
+
+    await newService.save();
+
+    return res.status(201).json({ success: true, message: "Hizmet başarıyla eklendi!", service: newService });
+  } catch (error) {
+    console.error("Hizmet eklerken hata oluştu:", error);
+    return res.status(500).json({ success: false, message: "Hizmet eklenirken hata oluştu.", error: error.message });
+  }
+});
+
 
 
 
 
 module.exports = {
-  getServices
+  getService,addService
 };
 

@@ -4,76 +4,89 @@ const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
 
 const User = require("../models/userModel.js");
-const Profil = require("../models/userProfilModel.js")
+const Company = require("../models/companyProfilModel")
 const Phone = require("../models/phoneModel.js")
-const Addres = require("../models/addresModel.js")
+const Address = require("../models/addresModel.js")
 const Social = require("../models/socilaLinksModel.js")
-const Package = require("../models/packageModel.js")
+const SystemPackage = require("../models/systemPackageModel.js")
 const Account = require("../models/accountModel.js")
 //helper
 const ApiResponse = require("../helpers/response.js")
-const CONSTANT = require("../constant/users/constant.js")
-
-const { publishToQueue } = require('../services/rabbitService.js');
 
 
-const KEYCLOAK_BASE_URL = process.env.KEYCLOAK_BASE_URL; // Keycloak URL
-const REALM = process.env.REALM; // Keycloak Realm adı
-const CLIENT_ID = process.env.CLIENT_ID; // Keycloak Client ID
-const CLIENT_SECRET = process.env.CLIENT_SECRET; // Client Secret (Confidential Clients için)
+const Keycloak = require("../lib/Keycloak.js");
 
 
 
 // **Kullanıcı Profili oluşturma**
 const createCompanyProfile = asyncHandler(async (req, res) => {
+  // Kullanıcıyı Keycloak'tan al
   const access_token = req.kauth.grant.access_token.token;
-  const {
-    firstname,
-    lastname,
-    birthdate,
-    bio,
-    genre,
-    profileImage,
-    status,
-    account,
-    phoneNumbers,
-    addresses,
-    socialLinks,
-  } = req.body;
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
 
+  if (!userkey || !userkey.sub) {
+    return res.status(401).json(ApiResponse.error({}, 401, "Yetkilendirme başarısız."));
+  }
+  if (!user) {
+    return res.status(404).json(ApiResponse.error({}, 404, "Kullanıcı bulunamadı."));
+  }
+
+  const userid = user._id
   try {
-    // **1️⃣ Geçerlilik Kontrolleri**
-    if (!firstname || !lastname) {
-      return res.status(400).json(ApiResponse.error({}, 400, "Lütfen tüm zorunlu alanları doldurun."));
+    const {
+      companyName, foundedDate, description, logo, industry, website, email,
+      certifications,companyType,taxOrIdentityNumber
+    } = req.body;
+
+    // **6️⃣ Kullanıcıya Varsayılan Paket ve Bilgileri Ata**
+    const sPackage = await SystemPackage.findOne({
+      forCompany: true,
+      default_package: true,
+      delete: false,
+      status: "active",
+    });
+    if (!sPackage) {
+      return res.status(400).json(ApiResponse.error({}, 400, "Varsayılan paket bulunamadı."));
     }
 
+    // **Hesapları Kaydetme**
+    const nAccount = await new Account({ userid, packages: [{ packageid: sPackage._id }] }).save()
 
-    // **4️⃣ MongoDB'de Profil Oluştur**
-    const newProfile = new Profile({
-      firstname,
-      lastname,
-      birthdate,
-      bio,
-      genre,
-      profileImage,
-      status,
-      account,
-      phoneNumbers,
-      addresses,
-      socialLinks
+    // **Yeni Firma Profili Kaydetme**
+    const newCompany = new Company({
+      userid,
+      companyName,
+      foundedDate,
+      description,
+      logo,
+      industry,
+      website,
+      email,
+      companyType,taxOrIdentityNumber,
+      phone: [],
+      address: [],
+      social: [],
+      accounts: [nAccount._id],
+      employees: [{userid}],
+      certifications,
+      products: [],
+      services: [],
+      documents: [],
+      galleries: [],
+      contents: []
     });
 
-    const savedProfile = await newProfile.save();
-    if (savedProfile) {
-      return res.status(201).json(ApiResponse.success(201, "Profil başarıyla oluşturuldu.", savedProfile));
+    await newCompany.save();
 
-    } else {
-      return res.status(400).json(ApiResponse.error(400, "Kullanıcı oluşturulamadı", {}));
-    }
+    let groupName = companyName + " - " + "grp"
+    await Keycloak.createGroup(groupName)
+    await Keycloak.addUserToGroup(userkey.sub, groupName)
 
-  } catch (err) {
-    console.error("Create Profile Error:", err.response ? err.response.data : err.message);
-    return res.status(500).json(ApiResponse.error({}, 500, "Sunucu hatası: " + err.message));
+    return res.status(201).json({ success: true, message: "Firma profili başarıyla oluşturuldu!", company: newCompany });
+  } catch (error) {
+    console.error("Firma profili oluştururken hata oluştu:", error);
+    return res.status(500).json({ success: false, message: "Firma profili oluşturulurken hata oluştu.", error: error.message });
   }
 });
 

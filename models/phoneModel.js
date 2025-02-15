@@ -1,3 +1,3 @@
 const mongoose = require('mongoose');
 var schema = require("./phoneSchema")
-module.exports = mongoose.model('phone', schema);;
+module.exports = mongoose.model('phones', schema);;

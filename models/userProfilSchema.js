@@ -2,8 +2,8 @@ const mongoose = require("mongoose");
 
 const profilSchema = new mongoose.Schema({
   userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
-  firstname: { type: String, default: "", required: [true, "Please add a your name"] },
-  lastname: { type: String, default: "", required: [true, "Please add a Family Name"] },
+  firstname: { type: String, default: "", required: false },
+  lastname: { type: String, default: "", required: false },
   birthdate: {
     type: Date,
     default: new Date(),
@@ -16,11 +16,11 @@ const profilSchema = new mongoose.Schema({
   },
   bio: { type: String, default: "" },
   genre: { type: String, enum: ['man', 'woman', 'pointout'], default: 'pointout' },
-  profileImage: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: null },  // Varsayılan değer olarak boş bir obje döner,
-  account: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
-  phone: [{ type: mongoose.Schema.Types.ObjectId, ref: "phone", required: false }],
-  addres: [{ type: mongoose.Schema.Types.ObjectId, ref: "addres", required: false }],
-  social: { type: mongoose.Schema.Types.ObjectId, ref: "social", required: false },
+  profileImage: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: "" },  // Varsayılan değer olarak boş bir obje döner,
+  accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
+  phones: [{ type: mongoose.Schema.Types.ObjectId, ref: "phones" }],
+  address: [{ type: mongoose.Schema.Types.ObjectId, ref: "addresses" }],
+  sociallinks: [{ type: mongoose.Schema.Types.ObjectId, ref: "sociallinks" }],
 }, { timestamps: true });
 
 module.exports = profilSchema;

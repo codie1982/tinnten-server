@@ -1,5 +1,5 @@
 const { getRabbitConnection } = require('../config/rabbitConnection');
-const { sendEmail } = require('../services/mailService');
+const { sendEmail } = require('../services/mailServices');
 
 async function startWorker() {
   const connection = await getRabbitConnection();

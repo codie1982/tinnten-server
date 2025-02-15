@@ -6,6 +6,7 @@
     "buildbabel": "babel api -d lib && babel dev -d dist",
     "start": "node server.js",
     "server": "nodemon server.js",
+    "worker": "node workers/emailWorker.js",
     "build": "npm run build --prefix frontend",
     "client": "npm start --prefix frontend",
     "dev": "concurrently \"npm run server\" \"npm run client\"",

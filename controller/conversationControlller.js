@@ -14,6 +14,7 @@ const CLIENT_SECRET = "y3P6T54oFpneKZQZdibTmdbKNXSPUwrQ"; // Client Secret (Conf
 
 const User = require("../models/userModel")
 const Conversation = require("../models/conversationModel");
+const Keycloak = require("../lib/Keycloak.js");
 
 
 const system_message = [
@@ -136,7 +137,7 @@ const system_message = [
   },
 ]
 //privete public
-const chat = asyncHandler(async (req, res) => {
+const conversation = asyncHandler(async (req, res) => {
   const { id, promt } = req.body
   console.log("conversationid", id)
 
@@ -162,20 +163,21 @@ const chat = asyncHandler(async (req, res) => {
 
 //privete public
 const create = asyncHandler(async (req, res) => {
-  const { title } = req.body
   const access_token = req.kauth.grant.access_token.token;
+  const userkey = await Keycloak.getUserInfo(access_token)
+  const user = await User.findOne({ keyid: userkey.sub })
+  const userid = user._id
+  const { title } = req.body
+
+
   try {
     const oldCnnv = await Conversation.findOne({ title: title });
     if (oldCnnv) return res.status(400).json(ApiResponse.error(400, "Konuşma başlığı daha önce girilmiş", { message: "Bu başlıkla zaten bir konuşma mevcut" }));
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
-    const userInfoResponse = await axios.get(`${KEYCLOAK_BASE_URL}/realms/${REALM}/protocol/openid-connect/userinfo`, {
-      headers: { Authorization: `Bearer ${access_token}` }
-    });
-    const user = await User.findOne({ subid: userInfoResponse.data.sub });
 
     const doc = new Conversation();
     doc.id = uuidv4()
-    doc.user = user._id;
+    doc.user = userid;
     doc.title = title
     const nConversation = await doc.save()
     if (nConversation) {
@@ -226,5 +228,5 @@ const history = asyncHandler(async (req, res) => {
   }
 });
 module.exports = {
-  create, chat, history
+  create, conversation, history
 };

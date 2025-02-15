@@ -13,10 +13,11 @@ const { keycloak, memoryStore } = require('./helpers/keycloak-config');
 
 const authRouters = require("./routes/authRouters")
 const usersRoutes = require("./routes/userRoutes")
+const profilRoutes = require("./routes/profilRoutes")
 const companyRouters = require("./routes/companyRouters")
 const conversationRoutes = require("./routes/conversationsRouters")
 const uploadRoutes = require("./routes/uploadRouters")
-const packagesRoutes = require("./routes/packagesRoutes")
+const systemPackagesRoutes = require("./routes/systemPackagesRoutes")
 const productRouters = require("./routes/productRouters")
 const servicesRouters = require("./routes/servicesRouters")
 const bidRequestRouters = require("./routes/bidRequestRouters")
@@ -57,15 +58,18 @@ app.use("/api/v10/auth", authRouters)
 
 app.use("/api/v10/users", usersRoutes)
 
-app.use("/api/v10/company", companyRouters)
-
-app.use("/api/v10/package", packagesRoutes)
-
-app.use("/api/v10/conversation", conversationRoutes)
+app.use("/api/v10/profile", profilRoutes)
 
 app.use("/api/v10/products", productRouters)
 
 app.use("/api/v10/services", servicesRouters)
+
+app.use("/api/v10/company", companyRouters)
+
+app.use("/api/v10/system-packages", systemPackagesRoutes)
+
+app.use("/api/v10/conversation", conversationRoutes)
+
 //teklif isteme
 app.use("/api/v10/bid-request", bidRequestRouters)
 //teklif verme
@@ -74,7 +78,6 @@ app.use("/api/v10/bid-response", bidResponseRouters)
 app.use("/api/v10/favorite", favoriteRouters)
 
 app.use("/api/v10/upload", uploadRoutes)
-
 
 /* app.get('/sitemap.xml', (req, res) => {
   res.header('Content-Type', 'application/xml');

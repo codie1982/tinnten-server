@@ -4,8 +4,8 @@ const { v4: uuidv4 } = require('uuid');
 // 📦 Konuşma Şeması
 const conversationSchema = new mongoose.Schema({
   conversationId: { type: String, default: uuidv4, unique: true },                   // Konuşma için benzersiz UUID
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-
+  userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
+  title: { type: String, default: "", required: true },
   messages: [{ type: mongoose.Schema.Types.ObjectId, ref: "message", required: true }],                                                        // Mesajlar
   behaviors: [{ type: mongoose.Schema.Types.ObjectId, ref: "userbehavior", required: true }],                                                  // Kullanıcı davranışları
   questionAnswers: [{ type: mongoose.Schema.Types.ObjectId, ref: "questionanswer", required: true }],                                          // Soru-cevap kayıtları

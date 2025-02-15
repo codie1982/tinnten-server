@@ -8,7 +8,7 @@ const accountSchema = new mongoose.Schema({
   packages: [{
     packageid: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'packages', // İlişkili olduğu Package koleksiyonuna referans
+      ref: 'system-packages', // İlişkili olduğu Package koleksiyonuna referans
       required: true
     },
     isActive: {

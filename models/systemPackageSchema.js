@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const packageSchema = new mongoose.Schema({
+const SystemPackageSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 100 },
   title: { type: String, required: true, trim: true, minlength: 3, maxlength: 100 },
   description: { type: String, maxlength: 500, required: true, default: '' },
@@ -9,7 +9,7 @@ const packageSchema = new mongoose.Schema({
     currency: { type: String, enum: ['USD', 'TRY'], default: 'USD' }
   },
   features: [{ item: { type: String } }],
-  buissness: { type: Boolean, default: true },
+  forCompany: { type: Boolean, default: true },
   category: { type: String, enum: ['free', 'basic', 'premium', 'enterprise'], default: "free" },
   package_content_type: { type: String, enum: ["standart", "multisubscribe", "student"], default: "standart" },
   limit: {
@@ -48,15 +48,15 @@ const packageSchema = new mongoose.Schema({
     },
     offer: {
       max: { type: Number, min: 0, default: 10 },
-      regeneretetime: { type: String, enum: ["Daiyl", "montly"], default: "Daiyl" },
+      regeneretetime: { type: String, enum: ["Daily", "montly"], default: "Daily" },
     },
     llm: {
       token: { type: Number, min: 0, default: 1024 },
-      regeneretetime: { type: String, enum: ["Daiyl", "montly"], default: "Daiyl" },
+      regeneretetime: { type: String, enum: ["Daily", "montly"], default: "Daily" },
     },
     token_limit: {
       token: { type: Number, min: 0, default: 512 },
-      regeneretetime: { type: String, enum: ["Daiyl", "montly"], default: "Daiyl" },
+      regeneretetime: { type: String, enum: ["Daily", "montly"], default: "Daily" },
     },
     maxDevices: { type: Number, },
   },
@@ -68,11 +68,10 @@ const packageSchema = new mongoose.Schema({
   isRenewable: { type: Boolean, default: false },
   renewalPrice: { type: Number, default: null, min: 0 }, // If null, use original price
   discount: { type: Number, min: 0, max: 100, default: 0 }, // Percentage discount
-  sales_channel: { type: String, enum: ["google"] }, // google apple ve huawei şeklinde artacak.
-  product_id: { type: String, default: "" }, //ürün IDsi hangi satış kanalı ile satış yapılacaksa o satış kanalının paket için vereceği ürün id'si
+  sales_channel: { type: String, enum: ["google","web"] }, // google apple ve huawei şeklinde artacak.
   default_package: { type: Boolean, default: false },
   delete: { type: Boolean, default: false },
   status: { type: String, enum: ['active', 'inactive', 'archived'], default: 'active' },
 }, { timestamps: true });
 
-module.exports = packageSchema;
+module.exports = SystemPackageSchema;
