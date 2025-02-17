@@ -23,6 +23,7 @@ coverage
 # node-waf configuration
 .lock-wscript
 
+*.csv
 
 
 # Dependency directories

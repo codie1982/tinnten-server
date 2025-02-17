@@ -61,7 +61,13 @@
     "strtok3": "^9.0.0",
     "supertest": "^7.0.0",
     "uuid": "^10.0.0",
-    "xss-clean": "^0.1.4"
+    "xss-clean": "^0.1.4",
+
+    "@langchain/core": "^0.3.16",
+    "@langchain/langgraph": "^0.2.19",
+    "@langchain/openai": "^0.3.11",
+    "langchain": "^0.3.5",
+    "openai": "^4.69.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.25.6",
