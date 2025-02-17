@@ -55,7 +55,7 @@ const register = asyncHandler(async (req, res) => {
       status: "active",
     });
     console.log("sPackage", sPackage)
-    
+
     const [nAccount, nPhone, nAddress, nSocial, nImages] = await Promise.all([
       new Account({ userid, packages: [{ packageid: sPackage._id }] }).save(),
       // new Phone({ userid }).save(),
@@ -64,7 +64,7 @@ const register = asyncHandler(async (req, res) => {
       // new Images({ userid }).save()
     ]);
     console.log("nAccount", nAccount)
-    
+
     let nProfile = await new Profile({
       userid,
       profileImage: {},
@@ -141,10 +141,29 @@ const login = asyncHandler(async (req, res) => {
 
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
     const userInfo = await Keycloak.getUserInfo(access_token);
-    const userId = userInfo.sub;
+    const userkeyid = userInfo.sub;
+    let user = await User.findOne({ keyid: userkeyid })
+    console.log("user", user)
+    if (!user) {
+      user = await new User({ keyid: userkeyid }).save();
+    }
+    const userid = user._id
+    const profiles = await Profile.findOne({ userid })
+      .populate("profileImage")
+      .populate({
+        path: "accounts",
+        populate: {
+          path: "packages.packageid", // DİKKAT: "packages" içindeki "packageid" populate edilecek
+          model: "system-packages", // Eğer otomatik algılanmazsa modeli burada belirtmelisin
+          select: ["name", "title", "description", "category", "price", "duration", "discount", "isRenewable"]
+        }
+      })
+      .populate("phones")
+      .populate("address")
+      .populate("sociallinks");
 
     // **3️⃣ Kullanıcının aktif oturumlarını al**
-    const activeSessions = await Keycloak.getUserSessions(userId);
+    const activeSessions = await Keycloak.getUserSessions(userkeyid);
 
     let isSameDevice = false;
     let isNewDevice = true;
@@ -169,7 +188,7 @@ const login = asyncHandler(async (req, res) => {
     // **4️⃣ Kullanıcının maksimum oturum sayısını kontrol et**
     const MAX_SESSIONS = 3;
     if (activeSessions.length > MAX_SESSIONS) {
-      await Keycloak.terminateOldSessions(userId, activeSessions, MAX_SESSIONS);
+      await Keycloak.terminateOldSessions(userkeyid, activeSessions, MAX_SESSIONS);
     }
 
     // **5️⃣ Kullanıcı yeni bir cihazdan giriş yaptıysa e-posta bildirimi gönder**
@@ -177,10 +196,12 @@ const login = asyncHandler(async (req, res) => {
       await Keycloak.sendDeviceChangeEmail(email, userInfo.name, new Date(), device, userAgent, ip);
     }
 
+    delete userInfo.sub
     // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
     return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", {
       message: isNewDevice ? "Başarıyla yeni bir cihazdan giriş yapıldı" : "Başarıyla giriş yapıldı",
-      user: userInfo,
+      info: userInfo,
+      profiles,
       access_token,
       refresh_token,
       lang: geo ? (geo.country === "TR" ? "TR" : "EN") : "TR"
@@ -214,10 +235,35 @@ const logout = asyncHandler(async (req, res) => {
   }
 });
 
-//access public
+
+//private public
+const validate = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  try {
+    // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
+    const validate = await Keycloak.validate(access_token)
+    // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
+    if (validate) {
+      return res.status(200).json(ApiResponse.success(200, "Access Token erişilebilir", {
+        message: "Access Token erişilebilir",
+      }));
+    } else {
+      return res.status(400).json(ApiResponse.success(400, "Access Token erişilebilir değil", {
+        message: "Access Token erişilebilir değil",
+      }));
+    }
+
+
+  } catch (error) {
+    console.error("Login Error:", error.response?.data || error);
+    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+  }
+});
+
 const refreshtoken = asyncHandler(async (req, res) => {
   const refreshToken = req.cookies['refresh_token']; // Refresh Token'ı cookie'den al
   try {
+    console.log("refreshToken",refreshToken)
     const response = await Keycloak.refreshUserToken(refreshToken)
 
     res.json({ access_token: response.data.access_token });
@@ -226,6 +272,7 @@ const refreshtoken = asyncHandler(async (req, res) => {
   }
 });
 
+
 module.exports = {
-  refreshtoken, logout, register, login
+  refreshtoken, logout, register, login, validate
 };

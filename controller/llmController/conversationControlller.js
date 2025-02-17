@@ -9,8 +9,11 @@ const ApiResponse = require("../../helpers/response.js")
 const User = require("../../models/userModel.js")
 const Conversation = require("../../models/conversationModel.js");
 const Message = require("../../models/messageModel.js");
+const Recommendation = require("../../models/recommendationModel.js")
+const Question = require("../../models/questionModel.js")
+const Answer = require("../../models/answerModel.js")
 const Behaviors = require("../../models/userBehaviorModel.js");
-const Questions = require("../../models/questionAnswerModel.js");
+const Questions = require("../../models/questionModel.js");
 
 
 const Keycloak = require("../../lib/Keycloak.js");
@@ -138,84 +141,128 @@ const system_message = [
 ]
 //privete public
 const conversation = asyncHandler(async (req, res) => {
-  // İlk olarak konuşmayı Redis'ten aramamız gerekiyor. Eğer yok ise DB'den eski konuşma var mı diye kontrol etmeliyiz.
   const { conversationid, human_message } = req.body;
   let { title } = req.body;
-  const access_token = req.kauth.grant.access_token.token;
+
+  // Kullanıcı yetkilendirme
+  const access_token = req.kauth?.grant?.access_token?.token;
+  if (!access_token) {
+    return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", { message: "Token bulunamadı veya geçersiz." }));
+  }
+
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
 
   if (!user) {
-    return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı." });
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
   }
 
-  // Aynı başlığa sahip konuşmayı kontrol et
-  if (human_message == null || human_message == "") {
-    return res.status(400).json(ApiResponse.error(400, "mesaj bloğu boş olamaz", { message: "mesaj bloğu boş olamaz" }));
+  if (!human_message || human_message.trim() === "") {
+    return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz", { message: "Lütfen bir mesaj girin." }));
   }
 
   const userid = user._id;
   let nConversation = null;
 
   try {
+    // 🔍 **Eğer `conversationid` varsa eski konuşmayı getir**
     if (conversationid) {
-      // Mevcut konuşmayı bul
       nConversation = await Conversation.findOne({
         conversationid,
         userid,
         status: CONSTANT.active,
         delete: false
       });
+
     } else {
+      // **Başlığı belirle**
       if (!title) {
-        return res.status(400).json({ success: false, message: "Başlık zorunludur." });
+        title = human_message.substring(0, 30) + "..."; // İlk 30 karakter + '...' ekleniyor
       }
-      title = title.trim().toLowerCase();
+      if (title) {
+        title = title.trim().normalize("NFKD").toLowerCase();
+      }
 
-      // Aynı başlığa sahip konuşmayı kontrol et
-      const oldCnnv = await Conversation.findOne({ title: title, status: CONSTANT.active, delete: false });
+      // **Aynı kullanıcı için aynı başlığa sahip konuşma olup olmadığını kontrol et**
+      const oldCnnv = await Conversation.findOne({
+        userid,
+        title: title || "",
+        status: CONSTANT.active,
+        delete: false
+      });
+
       if (oldCnnv) {
-        return res.status(400).json(ApiResponse.error(400, "Konuşma başlığı daha önce girilmiş", { message: "Bu başlıkla zaten bir konuşma mevcut" }));
+        // Kullanıcı için aynı başlık varsa, hata döndürme, mevcut konuşmayı döndür.
+        return res.status(200).json(ApiResponse.success(200, "", {
+          success: true,
+          message: "Mevcut konuşma getirildi.",
+          conversation: oldCnnv
+        }));
       }
 
-      // Yeni konuşma başlat
+      // **Yeni konuşma başlat**
       nConversation = new Conversation({
         conversationid: uuidv4(),
         userid,
         title,
         messages: []
       });
+
       await nConversation.save();
     }
 
-    // İlk mesajı ekle (Eğer gönderildiyse)
+    // **Mesajları ekle**
     let messageIds = [];
-
+    let groupid = uuidv4()
     if (human_message) {
-      // Kullanıcının mesajını oluştur
+      // **Kullanıcının mesajını oluştur**
       const humanMessage = new Message({
         type: "human_message",
+        groupid,
         content: human_message,
       });
 
-      // LLM'in sistem cevabını oluştur
+      // **LLM’in mesajını oluştur**
+      //const llmResponse = await getLLMResponse(human_message); // LLM cevabı
+      const llmResponse = "Sistem mesajı"
       const systemMessage = new Message({
         type: "system_message",
-        content: "llm cevabı",
+        groupid,
+        content: llmResponse || "Lütfen tekrar deneyin."
       });
 
-      await Message.insertMany([humanMessage, systemMessage]);
+      const insertedMessages = await Message.insertMany([humanMessage, systemMessage]);
+      if (!insertedMessages || insertedMessages.length === 0) {
+        throw new Error("Mesajlar veritabanına eklenemedi.");
+      }
+
       messageIds.push(humanMessage._id, systemMessage._id);
     }
 
-    // Konuşmaya mesajları ekleyelim
+    // **Mesajları Konuşmaya Ekle**
     if (messageIds.length > 0) {
-      nConversation.messages = [...nConversation.messages, ...messageIds];
-      await nConversation.save();
+      await Conversation.findOneAndUpdate(
+        { conversationid: nConversation.conversationid },
+        { $push: { messages: { $each: messageIds } } }
+      );
     }
 
-    // Mesajları populate etmeden önce konuşmayı tekrar yükle
-    nConversation = await Conversation.findOne({ conversationid: nConversation.conversationid }).populate("messages");
+    // **Konuşmayı populate ile tekrar yükle**
+    nConversation = await Conversation.findOne({ conversationid: nConversation.conversationid })
+      .populate({
+        path: "messages",
+        populate: [
+          { path: "systemData.recommendations", model: "recommendation" } // ✅ Model ismi büyük harfle başlamalı
+        ]
+      })
+      .populate("behaviors") // Kullanıcı davranışları
+      .populate({
+        path: "questions",
+        populate: {
+          path: "questionid",
+          model: "question"
+        }
+      });
 
     if (nConversation) {
       return res.status(200).json(ApiResponse.success(200, "", {
@@ -246,23 +293,36 @@ const create = asyncHandler(async (req, res) => {
   const userid = user._id;
   let { title } = req.body;
 
-  // Başlığı temizleyerek standart hale getir
-  title = title.trim().toLowerCase();
-
+  // Başlığı normalize et ve temizle
+  if (title && typeof title === "string") {
+    title = title.trim().normalize("NFKD").toLowerCase();
+  }
   try {
-    // Aynı başlığa sahip konuşmayı kontrol et
-    const oldCnnv = await Conversation.findOne({ title: title, status: CONSTANT.active, delete: false });
+    // Aynı kullanıcı için aynı başlığa sahip konuşma olup olmadığını kontrol et
+    const oldCnnv = await Conversation.findOne({
+      userid,
+      title: title,
+      status: CONSTANT.active,
+      delete: false
+    });
+
     if (oldCnnv) {
       return res.status(400).json(ApiResponse.error(400, "Konuşma başlığı daha önce girilmiş", { message: "Bu başlıkla zaten bir konuşma mevcut" }));
     }
 
-    // Konuşma nesnesini oluştur
+    // Benzersiz bir conversationid oluştur
+    let conversationid;
+    do {
+      conversationid = uuidv4();
+    } while (await Conversation.exists({ conversationid }));
+
+    // Yeni konuşma nesnesini oluştur
     const _conversation = new Conversation({
-      conversationid: uuidv4(),
+      conversationid,
       userid,
-      title,
+      title: title || "",
       messages: [],
-      context: systemContext() || "",  // Eğer `systemContext` tanımlı değilse boş string ata
+      context: typeof systemContext === "function" ? systemContext() : "",
     });
 
     // Konuşmayı kaydet
@@ -284,32 +344,57 @@ const create = asyncHandler(async (req, res) => {
 //privete public
 const detail = asyncHandler(async (req, res) => {
   const { conversationid } = req.params;
+
+  if (!conversationid) {
+    return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", { message: "Geçerli bir konuşma ID'si sağlamalısınız" }));
+  }
+
   try {
-    if (!conversationid) {
-      return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", { message: "Geçerli bir konuşma ID'si sağlamalısınız" }));
+    // 🔑 **Kullanıcı Yetkilendirme Kontrolü**
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", { message: "Token bulunamadı veya geçersiz." }));
     }
-    const access_token = req.kauth.grant.access_token.token;
+
     const userkey = await Keycloak.getUserInfo(access_token);
     const user = await User.findOne({ keyid: userkey.sub });
 
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
+    }
+
+    // 🗂 **Konuşmayı Veri Tabanından Getir**
     const _conversation = await Conversation
-      .find({ convarsitionid: conversationid, userid: user._id, status: CONSTANT.active, delete: false })
-      .populate("messages")
-      .populate("questionAnswers")
-      .populate("behaviors")
+      .findOne({ conversationid: conversationid, userid: user._id, status: CONSTANT.active, delete: false }) // ✅ Yanlış olan `convarsitionid` düzeltildi
+      .populate({
+        path: "messages",
+        populate: [
+          { path: "systemData.recommendations", model: "recommendation" } // ✅ Model ismi büyük harfle başlamalı
+        ]
+      })
+      .populate("behaviors") // Kullanıcı davranışları
+      .populate({
+        path: "questions",
+        populate: {
+          path: "questionid",
+          model: "question"
+        }
+      });
 
-    if (_conversation.length == 0) return res.status(400).json(ApiResponse.error(400, "Konuşmaya ulaşılamıyor ", { message: "konuşmaya ulaşılamıyor" }));
+    // 🚨 **Hatalı veya Geçersiz Konuşma Kontrolü**
+    if (!_conversation) {
+      return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
+    }
 
-    // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
-    return res.status(200).json(ApiResponse.success(200, "Konuşma detayı",
-      {
-        message: "Konuşma detayı",
-        _conversation,
-      }));
+    // 🆗 **Başarıyla Konuşmayı Döndür**
+    return res.status(200).json(ApiResponse.success(200, "Konuşma detayı", {
+      message: "Konuşma detayı",
+      conversation: _conversation, // ✅ JSON formatında göndermek için değişken adı düzeltildi
+    }));
 
   } catch (error) {
-    console.error("Login Error:", error.response?.data || error);
-    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+    console.error("Conversation Detail Error:", error.message);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { message: "Sunucu hatası, lütfen tekrar deneyin" }));
   }
 });
 
