@@ -13,7 +13,7 @@ const conversationSchema = new mongoose.Schema({
   userBehaviorModel: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
 
   context: { type: String, default: "" },
-  summarize: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
+  memory: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
   status: { type: String, enum: ["active", "completed"], default: "active" },
   delete: { type: Boolean, default: false }
   // Konuşma durumu

@@ -1,4 +1,4 @@
-const orientationContext = (summarize, human_message, userContext, qna) => {
+const orientationContext = (memory, human_message, userContext, qna) => {
     return new Promise((resolve, reject) => {
         let context = `
         Sen bir öneri motoru için çalışan akıllı bir LLM'sin.  
@@ -226,14 +226,14 @@ const orientationContext = (summarize, human_message, userContext, qna) => {
 
         resolve(context
             .replace("{userContext} ", userContext)
-            .replace("{conversation_summary}", summarize)
+            .replace("{conversation_summary}", memory)
             .replace("{conversation_questions}", qna ? qna.map(q => `Soru : ${q.q}\nCevap : ${q.a}\n`).join('') : "")
             .replace("{human_message}", human_message));
     })
 }
 
-module.exports = async (summarize, human_message, userContext, qna) => {
-    return orientationContext(summarize, human_message, userContext, qna)
+module.exports = async (memory, human_message, userContext, qna) => {
+    return orientationContext(memory, human_message, userContext, qna)
 }
 
 

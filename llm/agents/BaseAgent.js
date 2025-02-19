@@ -1,7 +1,7 @@
 const { connection } = require("../../llm/llmconfig")
 
 class BaseAgent {
-    constructor(model, tempature) {
+    constructor(model = "gpt-3.5-turbo", tempature = 0.2) {
         this.model = model
         this.tempature = tempature
     }

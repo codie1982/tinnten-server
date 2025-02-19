@@ -3,8 +3,8 @@ const orientationContext = require("../Context/orientationContext")
 const BaseAgent = require("./BaseAgent")
 
 class LLMAgent extends BaseAgent{
-    async getOrientationContext(messages, human_message,userContext,qna) {
-        this.context = await orientationContext(messages, human_message,userContext,qna)
+    async getOrientationContext(memory, human_message,userContext,qna) {
+        this.context = await orientationContext(memory, human_message,userContext,qna)
 
         const completion = await this.model.chat.completions.create({
             messages: [{ role: "assistant", content: this.context }],

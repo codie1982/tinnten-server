@@ -31,8 +31,9 @@ const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
 const { model } = require("mongoose");
 
-const SummarizeAgent = require("../../llm/agents/summarizeAgent.js");
-
+const SummarizeAgent = require("../../llm/agents/memoryAgent.js");
+const MemoryManager = require("../../llm/memory/MemoryManager.js");
+const ConversationProcessorFactory = require("../../lib/processor/ConversationProcessorFactory.js")
 
 const CONSTANT = { active: "active" }
 const system_message = [
@@ -245,14 +246,19 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
 
-    const context = await LLM.getOrientationContext(conversationid ? nConversation.messages != 0 ? nConversation.messages : [] : [],
+
+
+    const context = await LLM.getOrientationContext(nConversation.memory,
       human_message, nConversation.context, QnA)
 
     if (context.finish_reason != "stop") {
       return res.status(500).json(ApiResponse.error(400, "konuşma iptal oldu", { message: "konuşma iptal oldu." }));
     }
+
+ /*
     let systemMessage;
     if (context.uncertainty_level == "high") {
+
       //istek de belirsizlik var ise sorular ile kullanıcıdan daha fazla bilgi almaya çalşıyoruz.absolute
       let productionQuestionsIds = []
       let servicesQuestionsIds = []
@@ -324,7 +330,7 @@ const conversation = asyncHandler(async (req, res) => {
           }
 
         }
-       */
+      
 
       //Usage hesaplanması gerekiyor.
 
@@ -370,7 +376,10 @@ const conversation = asyncHandler(async (req, res) => {
         systemData: {},
       });
     }
-
+ */
+    const processor = ConversationProcessorFactory.getProcessor(context, nConversation, messageGroupid);
+    const systemMessage2 = await processor.process();
+    console.log("systemMessage2",systemMessage2)
     //konuşmanın özeti
 
     // **Kullanıcının mesajını oluştur**
@@ -379,8 +388,7 @@ const conversation = asyncHandler(async (req, res) => {
       groupid: messageGroupid,
       content: human_message == null ? "" : human_message,
     });
-    console.log("humanMessage", humanMessage)
-    console.log("systemMessage", systemMessage)
+   
     const insertedMessages = await Message.insertMany([humanMessage, systemMessage]);
     if (!insertedMessages || insertedMessages.length === 0) {
       throw new Error("Mesajlar veritabanına eklenemedi.");
@@ -398,9 +406,6 @@ const conversation = asyncHandler(async (req, res) => {
       );
     }
 
-
-
-
     // **Konuşmayı populate ile tekrar yükle**
     nConversation = await Conversation.findOne({ conversationid: nConversation.conversationid })
       .populate({
@@ -414,25 +419,21 @@ const conversation = asyncHandler(async (req, res) => {
       .populate("behaviors") // Kullanıcı davranışları
 
     if (nConversation) {
-      console.log("-----ENSON-----")
-      console.log("context", context)
-      console.log("nConversation.messages", nConversation.messages)
 
-      let isSummiraize = false;
+      let isMemmory = false;
       if (context.content.includeInContext) {
-        let userContext = context.content.context
-        let userbehavior = context.content.userBehaviorModel
-        const summarize = await new SummarizeAgent()
-        const conversationSummarize = await summarize.getSummarize(nConversation.messages, userbehavior, userContext)
-        await nConversation.findOneAndUpdate({ conversationid: nConversation.conversationid }, { summarize: conversationSummarize.content })
-        isSummiraize=true;
+        let memory = new MemoryManager()
+        let memmoryText = await memory.loadMemory(nConversation.conversationid)
+        let conversationSummarize = await memory.getSummirze()
+        nConversation.findOneAndUpdate({ conversationid: nConversation.conversationid }, { memory: conversationSummarize })
+        isMemmory = true;
       }
 
 
       return res.status(200).json(ApiResponse.success(200, "", {
         success: true,
         message: "Konuşma başarıyla oluşturuldu!",
-        summarize:isSummiraize,
+        isMemmory,
         conversation: nConversation
       }));
     }
