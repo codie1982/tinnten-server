@@ -10,9 +10,10 @@ const conversationSchema = new mongoose.Schema({
     { type: mongoose.Schema.Types.ObjectId, ref: "message", required: true, default: [] }
   ],                                                        // Mesajlar
   behaviors: [{ type: mongoose.Schema.Types.ObjectId, ref: "userbehavior", default: [] }],                                                  // Kullanıcı davranışları
-  
-  questions: [{ type: mongoose.Schema.Types.ObjectId, ref: "question" }], // LLM'in sorduğu sorunun ID'si
-  context: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
+  userBehaviorModel: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
+
+  context: { type: String, default: "" },
+  summarize: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
   status: { type: String, enum: ["active", "completed"], default: "active" },
   delete: { type: Boolean, default: false }
   // Konuşma durumu

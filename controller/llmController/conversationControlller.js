@@ -3,8 +3,14 @@ const asyncHandler = require("express-async-handler");
 const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
 
-
-
+const LLMAgent = require("../../llm/agents/llmAgent.js")
+//LLM import
+const {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  trimMessages,
+} = require("@langchain/core/messages");
 
 //helper
 const ApiResponse = require("../../helpers/response.js")
@@ -16,12 +22,17 @@ const Question = require("../../models/questionModel.js")
 const Answer = require("../../models/answerModel.js")
 const Behaviors = require("../../models/userBehaviorModel.js");
 const Questions = require("../../models/questionModel.js");
+const DynamicForm = require("../../models/dynamicFormModel.js")
+const FormField = require("../../models/formFieldModel.js")
+const FromResponse = require("../../models/formResponseSchema.js")
 
-
-
-
+const MODEL1 = "gpt-3.5-turbo"
+const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
-const { systemContext } = require("../../llm/procedure.js")
+const { model } = require("mongoose");
+
+const SummarizeAgent = require("../../llm/agents/summarizeAgent.js");
+
 
 const CONSTANT = { active: "active" }
 const system_message = [
@@ -145,8 +156,20 @@ const system_message = [
 ]
 //privete public
 const conversation = asyncHandler(async (req, res) => {
-  const { conversationid, human_message } = req.body;
+  const { conversationid, human_message, answers } = req.body;
   let { title } = req.body;
+
+  //"gpt-3.5-turbo"
+  let conversationCreated = false
+  let LLM;
+  try {
+
+    LLM = new LLMAgent()
+    await LLM.start(MODEL2, 0.2)
+  } catch (error) {
+    return res.status(500).json(ApiResponse.error(500, "LLM hatası", { message: "LLM bağlantısı kurulamıyor." }));
+
+  }
 
   // Kullanıcı yetkilendirme
   const access_token = req.kauth?.grant?.access_token?.token;
@@ -161,49 +184,34 @@ const conversation = asyncHandler(async (req, res) => {
     return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
   }
 
-  if (!human_message || human_message.trim() === "") {
-    return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz", { message: "Lütfen bir mesaj girin." }));
-  }
+
 
   const userid = user._id;
   let nConversation = null;
+  // **Mesajları ekle**
+  let messageIds = [];
+  let messageGroupid = uuidv4()
 
   try {
     // 🔍 **Eğer `conversationid` varsa eski konuşmayı getir**
     if (conversationid) {
+
       nConversation = await Conversation.findOne({
         conversationid,
         userid,
         status: CONSTANT.active,
         delete: false
-      });
+      })
+        .populate("messages");;
 
+      if (!nConversation) {
+        return res.status(500).json(ApiResponse.error(400, "conversionid'si geçersiz", { message: "conversionid'si geçersiz." }));
+      }
+      conversationCreated = false;
     } else {
+
       // **Başlığı belirle**
-      if (!title) {
-        title = human_message.substring(0, 30) + "..."; // İlk 30 karakter + '...' ekleniyor
-      }
-      if (title) {
-        title = title.trim().normalize("NFKD").toLowerCase();
-      }
-
-      // **Aynı kullanıcı için aynı başlığa sahip konuşma olup olmadığını kontrol et**
-      const oldCnnv = await Conversation.findOne({
-        userid,
-        title: title || "",
-        status: CONSTANT.active,
-        delete: false
-      });
-
-      if (oldCnnv) {
-        // Kullanıcı için aynı başlık varsa, hata döndürme, mevcut konuşmayı döndür.
-        return res.status(200).json(ApiResponse.success(200, "", {
-          success: true,
-          message: "Mevcut konuşma getirildi.",
-          conversation: oldCnnv
-        }));
-      }
-
+      if (title) title = title.trim().normalize("NFKD").toLowerCase();
       // **Yeni konuşma başlat**
       nConversation = new Conversation({
         conversationid: uuidv4(),
@@ -211,67 +219,220 @@ const conversation = asyncHandler(async (req, res) => {
         title,
         messages: []
       });
-
       await nConversation.save();
+      conversationCreated = true;
     }
-
-    // **Mesajları ekle**
-    let messageIds = [];
-    let groupid = uuidv4()
-    if (human_message) {
-      // **Kullanıcının mesajını oluştur**
-      const humanMessage = new Message({
-        type: "human_message",
-        groupid,
-        content: human_message,
-      });
-
-      // **LLM’in mesajını oluştur**
-      //const llmResponse = await getLLMResponse(human_message); // LLM cevabı
-      const llmResponse = "Sistem mesajı"
-      const systemMessage = new Message({
-        type: "system_message",
-        groupid,
-        content: llmResponse || "Lütfen tekrar deneyin."
-      });
-
-      const insertedMessages = await Message.insertMany([humanMessage, systemMessage]);
-      if (!insertedMessages || insertedMessages.length === 0) {
-        throw new Error("Mesajlar veritabanına eklenemedi.");
+    if (conversationCreated)
+      if (!human_message || human_message.trim() === "") {
+        return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz", { message: "Lütfen bir mesaj girin." }));
       }
 
-      messageIds.push(humanMessage._id, systemMessage._id);
+
+
+    let QnA = [];
+    if (answers && answers.length > 0) {
+
+
+      for (let i = 0; i < answers.length; i++) {
+        let questionid = answers[i].id;
+        await Question.findOneAndUpdate({ _id: questionid }, { answer: answers[i].a });
+        let nQuestion = await Question.findOne({ _id: questionid });
+
+        if (nQuestion) {
+          QnA.push({ q: nQuestion.questionText, a: answers[i].a });
+        }
+      }
     }
 
+
+    const context = await LLM.getOrientationContext(conversationid ? nConversation.messages != 0 ? nConversation.messages : [] : [],
+      human_message, nConversation.context, QnA)
+
+    if (context.finish_reason != "stop") {
+      return res.status(500).json(ApiResponse.error(400, "konuşma iptal oldu", { message: "konuşma iptal oldu." }));
+    }
+    let systemMessage;
+    if (context.uncertainty_level == "high") {
+      //istek de belirsizlik var ise sorular ile kullanıcıdan daha fazla bilgi almaya çalşıyoruz.absolute
+      let productionQuestionsIds = []
+      let servicesQuestionsIds = []
+      let productionQuestions = context.content.products?.question //ürünler için sorular
+
+      if (context.content.request_type == "product" || context.content.request_type == "both") {
+
+        if (productionQuestions.length != 0) {
+          for (let i = 0; productionQuestions.length; i++) {
+            let _questions = new Question({
+              conversationid: nConversation._id,
+              questionText: productionQuestions.q,  // LLM'in sorduğu soru
+              important: productionQuestions.important,// {type:String,enum:["high","low"]},
+              input_type: productionQuestions.input_type,
+              options: productionQuestions.options,
+            })
+
+            const nQuestion = await _questions.save()
+            productionQuestionsIds.push(nQuestion._id)
+          }
+        }
+      }
+      if (context.content.request_type == "service" || context.content.request_type == "both") {
+        let servicesQuestions = context.content.services?.question //Hizmetler için sorular
+
+        if (servicesQuestionsIds.length != 0) {
+          for (let i = 0; servicesQuestions.length; i++) {
+            let _questions = new Question({
+              conversationid: nConversation._id,
+              questionText: servicesQuestions.q,  // LLM'in sorduğu soru
+              important: servicesQuestions.important,// {type:String,enum:["high","low"]},
+              input_type: servicesQuestions.input_type,
+              options: servicesQuestions.options,
+            })
+
+            const nQuestion = await _questions.save()
+            servicesQuestionsIds.push(nQuestion._id)
+          }
+        }
+      }
+
+
+
+      systemMessage = new Message({
+        type: "system_message", // Mesaj türü
+        groupid: messageGroupid,
+        content: context.system_message,  // Mesaj içeriği
+        intent: context.context, // LLM niyet analizi
+        search_context: context.product.pro.search_context, // LLM niyet analizi
+        productionQuestions: productionQuestionsIds, // LLM'in sorduğu sorunun ID'si
+        servicesQuestions: servicesQuestionsIds, // LLM'in sorduğu sorunun ID'si
+        finish_reason: context.finish_reason,
+        systemData: {},
+      });
+
+
+      /**
+       *  conversation_usage: {
+          tokens: {
+            prompt_tokens: context.tokens.prompt_tokens,
+            completion_tokens: context.tokens.completion_tokens,
+            total_tokens: context.tokens.total_tokens,
+          },
+          cost: {
+            prompt_cost: context.cost.promptCost,
+            completion_cost: context.cost.completionCost,
+            total_cost: context.cost.totalCost,
+            unit: "DL"
+          }
+
+        }
+       */
+
+      //Usage hesaplanması gerekiyor.
+
+    } else if (context.uncertainty_level == "low") {
+      //tahminlenen ürünve hizmetler için yakınsama araması yapılacak.
+
+      //ürün ve hizmetler için bir embedding oluşturulacak. ilgili filtreler için de embeddin oluşturulacak
+      //ve dbde olan ürünler ve  filtreler ile birlikte kullanıcıya önerilerde bulunulacak. 
+      //tahmini ürünlerin listesi ve ürün groupları
+      let products = context.content.products
+      //genel olarak kategoriler
+      let general_categories = context.content.general_categories
+      //Kullanıcının bağlamı
+      //yapılması gereken eylem
+      let action = context.content.action
+      //token miktarı
+      let tokens = context.tokens
+      //modele göre dolar cinsinden maliyet 
+      let cost = context.cost
+
+      systemMessage = new Message({
+        type: "system_message", // Mesaj türü
+        groupid: messageGroupid,
+        content: context.system_message,  // Mesaj içeriği
+        intent: context.context, // LLM niyet analizi
+        search_context: context.search_context, // LLM niyet analizi
+        questions: [], // LLM'in sorduğu sorunun ID'si
+        finish_reason: "",
+        systemData: {},
+
+      });
+
+    } else {
+      console.log("context,", context)
+      systemMessage = new Message({
+        type: "system_message", // Mesaj türü
+        groupid: messageGroupid,
+        content: context.content.system_message,  // Mesaj içeriği
+        intent: context.context, // LLM niyet analizi
+        search_context: context.search_context, // LLM niyet analizi
+        questions: [],
+        finish_reason: context.finish_reason,
+        systemData: {},
+      });
+    }
+
+    //konuşmanın özeti
+
+    // **Kullanıcının mesajını oluştur**
+    const humanMessage = new Message({
+      type: "human_message",
+      groupid: messageGroupid,
+      content: human_message == null ? "" : human_message,
+    });
+    console.log("humanMessage", humanMessage)
+    console.log("systemMessage", systemMessage)
+    const insertedMessages = await Message.insertMany([humanMessage, systemMessage]);
+    if (!insertedMessages || insertedMessages.length === 0) {
+      throw new Error("Mesajlar veritabanına eklenemedi.");
+    }
+
+
+
+    messageIds.push(humanMessage._id, systemMessage._id);
     // **Mesajları Konuşmaya Ekle**
     if (messageIds.length > 0) {
-      await Conversation.findOneAndUpdate(
+      const newConversation = await Conversation.findOneAndUpdate(
         { conversationid: nConversation.conversationid },
-        { $push: { messages: { $each: messageIds } } }
+        { $push: { messages: { $each: messageIds } }, context: "" },
+        { new: true }
       );
     }
+
+
+
 
     // **Konuşmayı populate ile tekrar yükle**
     nConversation = await Conversation.findOne({ conversationid: nConversation.conversationid })
       .populate({
         path: "messages",
         populate: [
-          { path: "systemData.recommendations", model: "recommendation" } // ✅ Model ismi büyük harfle başlamalı
+          { path: "systemData.recommendations", model: "recommendation" }, // ✅ Model ismi büyük harfle başlamalı
+          { path: "productionQuestions", model: "question" }, // Mesajlar altındaki questions alanını populate et
+          { path: "servicesQuestions", model: "question" } // Mesajlar altındaki questions alanını populate et
         ]
       })
       .populate("behaviors") // Kullanıcı davranışları
-      .populate({
-        path: "questions",
-        populate: {
-          path: "questionid",
-          model: "question"
-        }
-      });
 
     if (nConversation) {
+      console.log("-----ENSON-----")
+      console.log("context", context)
+      console.log("nConversation.messages", nConversation.messages)
+
+      let isSummiraize = false;
+      if (context.content.includeInContext) {
+        let userContext = context.content.context
+        let userbehavior = context.content.userBehaviorModel
+        const summarize = await new SummarizeAgent()
+        const conversationSummarize = await summarize.getSummarize(nConversation.messages, userbehavior, userContext)
+        await nConversation.findOneAndUpdate({ conversationid: nConversation.conversationid }, { summarize: conversationSummarize.content })
+        isSummiraize=true;
+      }
+
+
       return res.status(200).json(ApiResponse.success(200, "", {
         success: true,
         message: "Konuşma başarıyla oluşturuldu!",
+        summarize:isSummiraize,
         conversation: nConversation
       }));
     }
@@ -326,7 +487,6 @@ const create = asyncHandler(async (req, res) => {
       userid,
       title: title || "",
       messages: [],
-      context: typeof systemContext === "function" ? systemContext() : "",
     });
 
     // Konuşmayı kaydet

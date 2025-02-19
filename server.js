@@ -27,6 +27,10 @@ const favoriteRouters = require("./routes/favoriteRouters")
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
 
+
+const fs = require('fs');
+
+const csv = require('csv-parser');
 //const App = require('../frontend/src/index.js'); // React uygulamanızı bu şekilde import edin
 
 const bodyParser = require("body-parser");
@@ -115,6 +119,18 @@ app.get('/images/cover', (req, res) => {
   });
 });
 
+app.get('/addproducts', (req, res) => {
+  const csvFilePath = path.join(__dirname, 'assets', 'production_infos.csv');
+
+  fs.createReadStream(csvFilePath)
+    .pipe(csv())
+    .on('data', (row) => {
+      console.log("row", row);
+    })
+    .on('end', () => {
+      console.log('CSV file successfully processed');
+    });
+});
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../frontend/build")))
   app.get("*", (_req, res) => {

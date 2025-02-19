@@ -143,7 +143,6 @@ const login = asyncHandler(async (req, res) => {
     const userInfo = await Keycloak.getUserInfo(access_token);
     const userkeyid = userInfo.sub;
     let user = await User.findOne({ keyid: userkeyid })
-    console.log("user", user)
     if (!user) {
       user = await new User({ keyid: userkeyid }).save();
     }
