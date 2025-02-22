@@ -1,6 +1,6 @@
 const asyncHandler = require("express-async-handler");
 const { v4: uuidv4 } = require('uuid');
-const Favorite = require("../models/favoriteModel")
+const Favorite = require("../mongoModels/favoriteModel")
 const ApiResponse = require("../helpers/response")
 const { validateNamePath } = require("../helpers/validatename")
 const PACKAGE_TYPE = {

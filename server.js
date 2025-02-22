@@ -5,6 +5,8 @@ const path = require('path');
 const compression = require('compression');
 const express = require("express")
 const fileUpload = require('express-fileupload');
+const { ObjectId } = require("mongodb");
+
 const { connectDB } = require("./config/db")
 const cookieParser = require('cookie-parser');
 
@@ -31,9 +33,15 @@ const { SitemapStream, streamToPromise } = require('sitemap');
 const fs = require('fs');
 
 const csv = require('csv-parser');
+
+const ProductModel = require("./mongoModels/productsModel")
+const PriceModel = require("./mongoModels/priceModel")
+const GalleryModel = require("./mongoModels/galleryModel")
+const ImageModel = require("./mongoModels/imagesModel")
 //const App = require('../frontend/src/index.js'); // React uygulamanızı bu şekilde import edin
 
 const bodyParser = require("body-parser");
+const { default: axios } = require("axios");
 const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
@@ -76,6 +84,7 @@ app.use("/api/v10/conversation", conversationRoutes)
 
 //teklif isteme
 app.use("/api/v10/bid-request", bidRequestRouters)
+
 //teklif verme
 app.use("/api/v10/bid-response", bidResponseRouters)
 
@@ -119,18 +128,217 @@ app.get('/images/cover', (req, res) => {
   });
 });
 
-app.get('/addproducts', (req, res) => {
-  const csvFilePath = path.join(__dirname, 'assets', 'production_infos.csv');
+app.post('/addproducts', async (req, res) => {
+  try {
 
-  fs.createReadStream(csvFilePath)
-    .pipe(csv())
-    .on('data', (row) => {
-      console.log("row", row);
-    })
-    .on('end', () => {
-      console.log('CSV file successfully processed');
-    });
+
+    const csvFilePath = path.join(__dirname, 'assets', 'production_info.csv');
+    const results = [];
+    const maxRows = 200; // İşlenecek maksimum satır sayısı (örnek için)
+    const skippedRows = []; // Atlanan satırları tutmak için dizi
+    const insertedProducts = []; // Eklenen ürünleri saklamak için
+
+    const readStream = fs.createReadStream(csvFilePath);
+    readStream
+      .pipe(csv({ separator: ',', quote: '"' }))
+      .on('data', (row) => {
+        results.push(row);
+      })
+      .on('end', async () => {
+        console.log('CSV dosyası başarıyla işlendi.');
+
+        // Her satırı sıralı olarak işle
+        for (let i = 0; i < results.length && i < maxRows == 0 ? results.length : maxRows; i++) {
+          const row = results[i];
+
+          // Gerekli alanlar listesi
+          const requiredFields = [
+            "Ürün İsmi",
+            "Ürün Fiyatı",
+            "Ürün Resmi",
+            "Meta Bilgisi",
+            "Ürün Marka",
+            "Ürün Açıklaması",
+            "URL"
+          ];
+
+          // Eksik alanları kontrol et
+          let missingFields = [];
+          requiredFields.forEach(field => {
+            if (!row[field] || !row[field].toString().trim()) {
+              missingFields.push(field);
+            }
+          });
+          if (missingFields.length > 0) {
+            console.warn(`Satır ${i} eksik alanlara sahip: ${missingFields.join(", ")}. Atlanıyor.`);
+            skippedRows.push({
+              row,
+              error: `Eksik alanlar: ${missingFields.join(", ")}`
+            });
+            continue;
+          }
+
+          const title = row["Ürün İsmi"] ? row["Ürün İsmi"].trim() : "";
+          if (!title) continue;
+
+          // Aynı başlığa sahip ürün var mı kontrolü
+          /* const existingProduct = await ProductModel.findOne({ title: title });
+          if (existingProduct) {
+            console.log(`Duplicate product found for title "${title}". Skipping.`);
+            continue;
+          }
+ */
+          try {
+            // Vektör metnini oluştur
+            const vectorText = `${row["Meta Bilgisi"]} - ${row["Ürün İsmi"]} - ${row["Ürün Marka"]} - ${row["Ürün Açıklaması"]} - ${row["URL"]}`;
+            const vectorResponse = await axios.post(
+              process.env.EMBEDDING_URL + "/api/v10/llm/vector",
+              { text: vectorText }
+            );
+            console.log("vectorResponse", vectorResponse.data)
+            /*   // Fiyat dönüşümü
+              let priceString = row["Ürün Fiyatı"] || "";
+              priceString = priceString.replace(/"/g, '');
+              priceString = priceString.replace('TL', '').trim().replace(',', '.');
+              const originalPrice = parseFloat(priceString);
+  
+              if (isNaN(originalPrice)) {
+                console.error(`Fiyat dönüştürülemedi: Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`);
+                skippedRows.push({
+                  row,
+                  error: `Fiyat değeri NaN. Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`
+                });
+                continue;
+              }
+  
+              // İlgili modellerden dokümanlar oluşturma
+              const priceDoc = await PriceModel.create({
+                originalPrice: originalPrice,
+                currency: "TL"
+              });
+  
+              const imageDoc = await ImageModel.create({
+                type: 'external',
+                path: row["Ürün Resmi"]
+              });
+  
+              const galleryDoc = await GalleryModel.create({
+                title: row["Ürün İsmi"],
+                description: row["Ürün Açıklaması"],
+                images: [imageDoc._id]
+              });
+  
+              const productDoc = {
+                title: row["Ürün İsmi"],
+                meta: row["Meta Bilgisi"],
+                description: row["Ürün Açıklaması"],
+                categories: [],
+                basePrice: [priceDoc._id],
+                variants: [],
+                gallery: galleryDoc._id,
+                redirectUrl: [row["URL"]],
+                vector: vectorResponse.data.vector
+              };
+  
+              // Ürünü veritabanına ekle
+              const newProduct = await ProductModel.create(productDoc);
+              insertedProducts.push(newProduct);
+              console.log(`Ürün eklendi: ${title}`); */
+          } catch (err) {
+            console.error(`Satır işlenirken hata oluştu (Title: ${title}):`, err.message);
+            skippedRows.push({
+              row,
+              error: err.message
+            });
+          }
+        }
+
+        // Atlanan satırları dosyaya kaydet
+        const skippedRowsPath = path.join(__dirname, 'skipped_rows.json');
+        fs.writeFileSync(skippedRowsPath, JSON.stringify(skippedRows, null, 2));
+
+        if (insertedProducts.length) {
+          res.status(200).json({ message: 'Products added successfully', data: insertedProducts });
+        } else {
+          res.status(500).json({ message: 'No products were added.' });
+        }
+      })
+      .on('error', (err) => {
+        console.error('CSV dosyası işlenirken hata oluştu:', err);
+        res.status(500).json({ message: 'CSV dosyası işlenirken hata oluştu' });
+      });
+
+
+  } catch (error) {
+    console.error('Error fetching data from local network:', error);
+    res.status(500).send('Error fetching data from local network');
+  }
+
+
 });
+app.get("/fix-vectors", async (req, res) => {
+  try {
+    // MongoDB'den ilk 2 dokümanı al
+    const documents = await ProductModel.find()
+
+    if (!documents.length) {
+      console.log("Düzeltilecek vektör bulunamadı.");
+      return res.status(404).json({ message: "Düzeltilecek vektör bulunamadı." });
+    }
+
+    for (let doc of documents) {
+      console.log("Mevcut Doküman:", doc._id);
+      
+      // Eğer `vector` alanı yoksa veya array değilse, atla
+      if (!doc.vector || !Array.isArray(doc.vector)) {
+        console.log(`Hata: ${doc._id} dokümanında vector alanı eksik veya hatalı.`);
+        continue; // Bu dokümanı atla, diğerlerini güncelle
+      }
+
+      console.log("Orijinal Vector:", doc.vector);
+
+      // İç içe geçmiş vektörü düz hale getir (undefined koruması ile)
+      let flatVector = flattenArray(doc.vector) || [];
+
+      // MongoDB'de güncelleme yap
+      const upt = await ProductModel.updateOne(
+        { _id: doc._id },
+        {
+          $set: { vector: flatVector } // Güncellenmiş düz vector
+        }
+      );
+
+      if (upt.modifiedCount > 0) {
+        console.log(`Başarıyla Güncellendi: ${doc._id}`);
+      } else {
+        console.log(`Güncelleme Yapılmadı: ${doc._id}`);
+      }
+    }
+
+    res.status(200).json({ message: "Düzeltme işlemi tamamlandı." });
+
+  } catch (error) {
+    console.error("Error fetching data from local network:", error);
+    res.status(500).send("Error fetching data from local network");
+  }
+});
+// İç içe geçmiş array'leri manuel düzleştirme fonksiyonu (recursive)
+function flattenArray(arr) {
+  let result = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (Array.isArray(arr[i])) {
+      // Eğer iç içe array varsa, içindeki değerleri ekle
+      for (let j = 0; j < arr[i].length; j++) {
+        result.push(arr[i][j]);
+      }
+    } else {
+      // Eğer array değilse, direkt ekle
+      result.push(arr[i]);
+    }
+  }
+  return result;
+}
+
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../frontend/build")))
   app.get("*", (_req, res) => {

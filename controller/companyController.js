@@ -3,13 +3,13 @@ const asyncHandler = require("express-async-handler");
 const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
 
-const User = require("../models/userModel.js");
-const Company = require("../models/companyProfilModel")
-const Phone = require("../models/phoneModel.js")
-const Address = require("../models/addresModel.js")
-const Social = require("../models/socilaLinksModel.js")
-const SystemPackage = require("../models/systemPackageModel.js")
-const Account = require("../models/accountModel.js")
+const User = require("../mongoModels/userModel.js");
+const Company = require("../mongoModels/companyProfilModel.js")
+const Phone = require("../mongoModels/phoneModel.js")
+const Address = require("../mongoModels/addresModel.js")
+const Social = require("../mongoModels/socilaLinksModel.js")
+const SystemPackage = require("../mongoModels/systemPackageModel.js")
+const Account = require("../mongoModels/accountModel.js")
 //helper
 const ApiResponse = require("../helpers/response.js")
 

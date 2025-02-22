@@ -6,12 +6,12 @@ const bcrypt = require("bcryptjs");
 var geoip = require('geoip-lite');
 const { v4: uuidv4 } = require('uuid');
 const { OAuth2Client } = require("google-auth-library");
-const User = require("../models/userModel");
-const Profile = require("../models/userProfilModel.js")
-const Phone = require("../models/phoneModel.js")
-const Address = require("../models/addresModel.js")
-const Social = require("../models/socilaLinksModel.js")
-const Images = require("../models/imagesModel.js")
+const User = require("../mongoModels/userModel.js");
+const Profile = require("../mongoModels/userProfilModel.js")
+const Phone = require("../mongoModels/phoneModel.js")
+const Address = require("../mongoModels/addresModel.js")
+const Social = require("../mongoModels/socilaLinksModel.js")
+const Images = require("../mongoModels/imagesModel.js")
 
 
 //helper

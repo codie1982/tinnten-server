@@ -1,4 +1,7 @@
-const orientationContext = (memory, human_message, userContext, qna) => {
+const Conversation = require("../../models/Conversation")
+const orientationContext = (user, conversation, human_message) => {
+    console.log("[orientationContext] Called with user:", user, "conversation id:", conversation?.conversationid)
+    const _conversation = new Conversation(conversation)
     return new Promise((resolve, reject) => {
         let context = `
         Sen bir öneri motoru için çalışan akıllı bir LLM'sin.  
@@ -47,7 +50,7 @@ const orientationContext = (memory, human_message, userContext, qna) => {
             "system_message": "",  // Kullanıcıya gösterilecek mesaj
             "request_type": "product",  // "product", "service", "both", "unknown"
             "uncertainty_level": "low",  // "low" -> Net istek, "high" -> Belirsizlik var, sorular gerekli.
-            "multiple_request": "false",
+            "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [
                 {
                     "product_name": "",         // Ürün ismi
@@ -84,13 +87,14 @@ const orientationContext = (memory, human_message, userContext, qna) => {
                         }
                     ],
                     "question": [],
-                    "action": "recommendation"
+                    
                 }
             ],
             "general_categories": ["Kategori 1", "Kategori 2"],
             "context": "Kullanıcının genel isteği",
+            "action": "" //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ; Kullanıcaya öneri yapılması gerekiyor ise "reccomendation" ; Eğer herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
-            "includeInContext":"Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? True veya False"
+            "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "title" : "Konuşma için bir başlık önerisi yap"
         }
         \`\`\`
@@ -104,12 +108,13 @@ const orientationContext = (memory, human_message, userContext, qna) => {
             "system_message": "Merhaba! Size nasıl yardımcı olabilirim? Ben sadece ürün ve hizmet önerileri sunabilirim.",
             "request_type": "unknown",
             "uncertainty_level": "",
-            "multiple_request": "false",
+            "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [],
             "services": [],
             "general_categories": [],
+            "action": "none" herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
-            "includeInContext":"Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? True veya False"
+            "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "context": "Genel selamlama"
         }
         \`\`\`
@@ -122,12 +127,13 @@ const orientationContext = (memory, human_message, userContext, qna) => {
             "system_message": "Ben, Tinnten AI, doğal dil ile ürün ve hizmet aramanıza yardımcı olan bir öneri motoruyum. Benden belirli bir ürün veya hizmet hakkında bilgi alabilirsiniz.",
             "request_type": "unknown",
             "uncertainty_level": "",
-            "multiple_request": "false",
+            "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [],
             "services": [],
+            "action": "question"  // herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "general_categories": [],
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
-            "includeInContext":"Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? True veya False"
+            "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "context": "Sistemin çalışma prensibini öğrenmek istiyor"
         }
         \`\`\`
@@ -144,7 +150,7 @@ const orientationContext = (memory, human_message, userContext, qna) => {
                     "product_name": "Uzun Kırmızı Gece Elbisesi",
                     "product_category": "Giyim",
                     "search_context": "Kullanıcı kırmızı renkli, uzun bir gece elbisesi arıyor.",
-                    "uncertainty": false,
+                    "uncertainty": false, //parametreyi boolean değer olarak ata
                     "attributes": [
                         {
                             "name": "Renk",
@@ -159,14 +165,14 @@ const orientationContext = (memory, human_message, userContext, qna) => {
                             "value": "Uzun"
                         }
                     ],
-                    "action": "recommendation"
                 }
             ],
             "services": [],
             "general_categories": ["Giyim"],
             "context": "Kullanıcı net bir şekilde kırmızı, uzun bir gece elbisesi arıyor.",
+            "action":"recommendation", // Kullanıcaya öneri yapılması gerekiyor ise "reccomendation"
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
-            "includeInContext":"Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? True veya False"
+            "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "title" : "Konuşma için bir başlık önerisi yap"
         }
         \`\`\`
@@ -178,6 +184,7 @@ const orientationContext = (memory, human_message, userContext, qna) => {
         {
             "request_type": "product",
             "uncertainty_level": "high",
+            "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [
                 {
                     "product_name": "",
@@ -205,35 +212,56 @@ const orientationContext = (memory, human_message, userContext, qna) => {
                             "options": ["XS", "S", "M", "L", "XL"]
                         }
                     ],
-                    "action": "question"
                 }
             ],
+            "action": "question",  //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ;
             "services": [],
             "general_categories": ["Giyim"],
             "context": "Kullanıcı bir elbise arıyor ancak detayları net değil.",
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
-            "includeInContext":"Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? True veya False"
+            "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "title" : "Konuşma için bir başlık önerisi yap"
         }
         \`\`\`
         
         ---
+        Kullanıcının Profil Bilgileri: {userProfi}  
         Kullanıcının Tinnten den genel beklentisi: {userContext}  
+        Davranışsal kullanıcı modeli: {userBehaviorModel}  
         Konuşma özeti: {conversation_summary}  
         Soru Cevap: {conversation_questions}  
         Kullanıcı isteği: {human_message}
         `;
 
-        resolve(context
-            .replace("{userContext} ", userContext)
-            .replace("{conversation_summary}", memory)
-            .replace("{conversation_questions}", qna ? qna.map(q => `Soru : ${q.q}\nCevap : ${q.a}\n`).join('') : "")
-            .replace("{human_message}", human_message));
+        const formattedText = _conversation.messages
+            ?.map((item) => {
+                return item?.productionQuestions?.map((quest) =>
+                    `Soru: ${quest?.questionText || "Bilinmiyor"}\nCevap: ${quest?.answer || "Bilinmiyor"}\n`
+                ).join('') || '';  // Eğer boşsa, en azından boş string dön
+            }).join('');
+        console.log("formattedText", formattedText)
+
+        context = context
+            .replace("{userProfi}", user)
+            .replace("{userContext}", _conversation.context)
+            .replace("{userBehaviorModel} ", _conversation.userBehaviorModel)
+            .replace("{conversation_summary}", _conversation.memory)
+            //.replace("{conversation_questions}", _conversation ? _conversation.messages.map(q => `Soru : ${q.questionText}\nCevap : ${q?.answer}\n`).join('') : "")
+            .replace("{conversation_questions}", _conversation ?
+                _conversation.messages.map((item) => {
+                    return item.productionQuestions.map((quest) => `Soru : ${quest.questionText}\nCevap : ${quest?.answer}\n`).join('')
+                }).join('') : "")
+            .replace("{human_message}", human_message)
+
+        console.log("[orientationContext] Final context built.")
+        resolve(context)
+
+
     })
 }
 
-module.exports = async (memory, human_message, userContext, qna) => {
-    return orientationContext(memory, human_message, userContext, qna)
+module.exports = async (user, conversation, human_message) => {
+    return orientationContext(user, conversation, human_message)
 }
 
 

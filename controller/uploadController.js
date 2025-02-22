@@ -2,12 +2,12 @@
 const asyncHandler = require("express-async-handler");
 const aws = require("../config/aws")
 const { Upload } = require('@aws-sdk/lib-storage'); // Upload sınıfını buradan içe aktarın
-const Images = require("../models/imagesModel")
+const Images = require("../mongoModels/imagesModel")
 const { v4: uuidv4 } = require('uuid');
 const ApiResponse = require("../helpers/response")
 
 
-const UploadModel = require("../models/uploadModel")
+const UploadModel = require("../mongoModels/uploadModel")
 const { getFolderPath, sanitizeFileName, SONG, IMAGE, VIDEO } = require('../helpers/folder'); // Klasör yolunu belirleme fonksiyonunu içe aktarın
 const { validateFolderPath } = require('../helpers/validatename'); // Klasör yolunu belirleme fonksiyonunu içe aktarın
 const { convertUnit } = require("../calculate/convertUnit");

@@ -1,9 +1,9 @@
 const asyncHandler = require("express-async-handler");
 const { v4: uuidv4 } = require('uuid');
-const Product = require("../models/productsModel")
-const Price = require("../models/priceModel")
-const Variant = require("../models/variantsModel")
-const Image = require("../models/imagesModel")
+const Product = require("../mongoModels/productsModel")
+const Price = require("../mongoModels/priceModel")
+const Variant = require("../mongoModels/variantsModel")
+const Image = require("../mongoModels/imagesModel")
 const ApiResponse = require("../helpers/response")
 
 

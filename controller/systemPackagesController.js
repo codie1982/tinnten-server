@@ -1,5 +1,5 @@
 const asyncHandler = require("express-async-handler");
-const SystemPackage = require("../models/systemPackageModel")
+const SystemPackage = require("../mongoModels/systemPackageModel")
 const ApiResponse = require("../helpers/response")
 
 const getpackages = asyncHandler(async (req, res) => {

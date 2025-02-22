@@ -2,14 +2,14 @@
 const asyncHandler = require("express-async-handler");
 const axios = require("axios");
 var geoip = require('geoip-lite');
-const User = require("../models/userModel");
-const Images = require("../models/imagesModel")
-const Profile = require("../models/userProfilModel")
-const Phone = require("../models/phoneModel")
-const Address = require("../models/addresModel")
-const Social = require("../models/socilaLinksModel")
-const SystemPackage = require("../models/systemPackageModel")
-const Account = require("../models/accountModel")
+const User = require("../mongoModels/userModel.js");
+const Images = require("../mongoModels/imagesModel.js")
+const Profile = require("../mongoModels/userProfilModel.js")
+const Phone = require("../mongoModels/phoneModel.js")
+const Address = require("../mongoModels/addresModel.js")
+const Social = require("../mongoModels/socilaLinksModel.js")
+const SystemPackage = require("../mongoModels/systemPackageModel.js")
+const Account = require("../mongoModels/accountModel.js")
 const { v4: uuidv4 } = require('uuid');
 const { OAuth2Client } = require("google-auth-library");
 //helper

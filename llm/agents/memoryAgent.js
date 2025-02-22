@@ -1,14 +1,11 @@
 const Cost = require("../../lib/cost")
-const memoryContext = require("../Context/memoryContext")
+const summarizeContext = require("../Context/summarizeContext")
 const BaseAgent = require("./BaseAgent")
 
-class MemoryAgent extends BaseAgent {
-
-
-
-    async getMemory(memory) {
-        this.context = await memoryContext(memory)
-
+class SummarizeAgent extends BaseAgent {
+    async getSummarize(conversation) {
+        this.context = await summarizeContext(conversation)
+        console.log("context", this.context)
         const completion = await this.model.chat.completions.create({
             messages: [{ role: "assistant", content: this.context }],
             model: this.model_name,
@@ -17,13 +14,13 @@ class MemoryAgent extends BaseAgent {
         });
 
         let response = completion.choices[0].message.content
-        const parseResponse = JSON.parse(this.cleanJSON(response));
+        console.log("response", response)
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
 
         return {
             model: completion.model,
-            content: parseResponse,
+            content: response,
             finish_reason: completion.choices[0].finish_reason,
             tokens: {
                 prompt_tokens: completion.usage.prompt_tokens,
@@ -43,4 +40,4 @@ class MemoryAgent extends BaseAgent {
     }
 }
 
-module.exports = MemoryAgent
+module.exports = SummarizeAgent
