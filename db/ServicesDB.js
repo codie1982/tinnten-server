@@ -67,6 +67,8 @@ class ServicesDB extends BaseDB {
             throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
         }
     }
+   
+
 }
 
 module.exports = ServicesDB;
