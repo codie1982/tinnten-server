@@ -63,15 +63,7 @@ const orientationContext = (user, conversation, human_message) => {
                             "value": "Filtre Değeri" // Örn. Polo, kırmızı, XL
                         }
                     ],
-                    "question": [
-                        {
-                            "important": "high",
-                            "input_type": "select",
-                            "q": "Eksik bilgi sorusu?",
-                            "options": ["Seçenek1", "Seçenek2"]
-                        }
-                    ],
-                    "action": "question" // "recommendation" veya "question"
+                    
                 }
             ],
             "services": [
@@ -86,13 +78,19 @@ const orientationContext = (user, conversation, human_message) => {
                             "value": "Filtre Değeri"
                         }
                     ],
-                    "question": [],
-                    
                 }
             ],
+            "question": [
+                        {
+                            "important": "high",
+                            "input_type": "select",
+                            "q": "Eksik bilgi sorusu?",
+                            "options": ["Seçenek1", "Seçenek2"]
+                        }
+                    ],
             "general_categories": ["Kategori 1", "Kategori 2"],
             "context": "Kullanıcının genel isteği",
-            "action": "" //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ; Kullanıcaya öneri yapılması gerekiyor ise "reccomendation" ; Eğer herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
+            "action": "" //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "question" ; Kullanıcaya öneri yapılması gerekiyor ise "reccomendation" ; Eğer herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
             "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
             "title" : "Konuşma için bir başlık önerisi yap"
@@ -111,6 +109,7 @@ const orientationContext = (user, conversation, human_message) => {
             "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [],
             "services": [],
+            "question": [],
             "general_categories": [],
             "action": "none" herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
@@ -130,7 +129,8 @@ const orientationContext = (user, conversation, human_message) => {
             "multiple_request": false, //parametreyi boolean değer olarak ata
             "products": [],
             "services": [],
-            "action": "question"  // herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
+            "question": [],
+            "action": ""  // herhangi bir eylem yapılamsı gerekmiyor ise "none" değerlerini alabilirm
             "general_categories": [],
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",
             "includeInContext": false //Bu mesaj Genel bağlama eklenmesi gereken önemli bir mesaj mı? true veya false. parametreyi boolean değer olarak ata
@@ -168,6 +168,7 @@ const orientationContext = (user, conversation, human_message) => {
                 }
             ],
             "services": [],
+            "question": [],
             "general_categories": ["Giyim"],
             "context": "Kullanıcı net bir şekilde kırmızı, uzun bir gece elbisesi arıyor.",
             "action":"recommendation", // Kullanıcaya öneri yapılması gerekiyor ise "reccomendation"
@@ -192,7 +193,11 @@ const orientationContext = (user, conversation, human_message) => {
                     "search_context": "Kullanıcı elbise arıyor ancak detayları belirsiz.",
                     "uncertainty": true,
                     "attributes": [],
-                    "question": [
+                }
+            ],
+            "action": "question",  //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ;
+            "services": [],
+            "question": [
                         {
                             "important": "high",
                             "input_type": "select",
@@ -212,10 +217,6 @@ const orientationContext = (user, conversation, human_message) => {
                             "options": ["XS", "S", "M", "L", "XL"]
                         }
                     ],
-                }
-            ],
-            "action": "question",  //Yapılması gereken eylem ->Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ;
-            "services": [],
             "general_categories": ["Giyim"],
             "context": "Kullanıcı bir elbise arıyor ancak detayları net değil.",
             "userBehaviorModel":"Kullanıcı davranışı için genel bir tanımlama yap",

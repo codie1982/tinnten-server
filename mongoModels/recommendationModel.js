@@ -9,9 +9,9 @@ const recommendationSchema = new mongoose.Schema({
     score: { type: Number, default: 0 },   // Öneri puanı (vektör yakınlığı veya güven skoru)
     explanation: { type: String, default: "" }, // Neden önerildiği (örneğin: "Önceki tercihlerine göre önerildi.")
 
-    products: [{ type: mongoose.Schema.Types.ObjectId, ref: "product", required: false }],  // Ürün önerisi varsa
-    services: [{ type: mongoose.Schema.Types.ObjectId, ref: "service", required: false }],  // Hizmet önerisi varsa
-    companyies: [{ type: mongoose.Schema.Types.ObjectId, ref: "company", required: false }]   // Firma önerisi varsa
+    products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],  // Ürün önerisi varsa
+    services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],  // Hizmet önerisi varsa
+    companyies: [{ type: mongoose.Schema.Types.ObjectId, ref: "companyprofile", required: false }]   // Firma önerisi varsa
 }, { timestamps: true });
 
 module.exports = mongoose.model('recommendation', recommendationSchema);

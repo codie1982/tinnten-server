@@ -227,7 +227,7 @@ const conversation = asyncHandler(async (req, res) => {
     console.log("[Conversation] Retrieving LLM orientation context...");
     const context = await LLM.getOrientationContext(userkey, conversation, human_message);
     console.log("context", context);
-    console.log("context",context.content.products)
+    console.log("context", context.content.products)
     console.log("[Conversation] Received context with finish_reason:", context.finish_reason);
     if (!context || context.finish_reason !== "stop") {
       console.error("[Conversation] LLM process incomplete");
@@ -305,7 +305,7 @@ const conversation = asyncHandler(async (req, res) => {
   }
 });
 const answer = asyncHandler(async (req, res) => {
-  const { id, a } = req.body;
+  const { id, answer } = req.body;
   const questionid = id;
   // Kullanıcı yetkilendirme
   const access_token = req.kauth?.grant?.access_token?.token;
@@ -322,16 +322,53 @@ const answer = asyncHandler(async (req, res) => {
 
   try {
     const questionDB = new QuestionDB()
-    const _question = await questionDB.update({ _id: questionid }, { answer: a })
+    const _question = await questionDB.update({ _id: questionid }, { answer })
     if (_question) {
-      return res.status(200).json(ApiResponse.success(200, "", {
+      return res.status(200).json(ApiResponse.success(200, "cevap kayıt edildi", {
         success: true,
         message: "cevap kayıt edildi!",
+        question: _question
       }));
     }
 
   } catch (error) {
     console.error("cevap kayıt edilemedi:", error);
+    return res.status(500).json(ApiResponse.error(500, "", {
+      success: false,
+      message: "cevap kayıt edilemedi.",
+      error: error.message
+    }));
+  }
+});
+const deleteQuestion = asyncHandler(async (req, res) => {
+  const { id } = req.body;
+  const questionid = id;
+  // Kullanıcı yetkilendirme
+  const access_token = req.kauth?.grant?.access_token?.token;
+  if (!access_token) {
+    return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", { message: "Token bulunamadı veya geçersiz." }));
+  }
+
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
+
+  if (!user) {
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
+  }
+
+  try {
+    const questionDB = new QuestionDB()
+    const _question = await questionDB.update({ _id: questionid }, { delete: true })
+    if (_question) {
+      return res.status(200).json(ApiResponse.success(200, "mesaj başarı ile silindi", {
+        success: true,
+        message: "mesaj başarı ile silindi!",
+        deleteid: questionid
+      }));
+    }
+
+  } catch (error) {
+    console.error("Soru silinmedi:", error);
     return res.status(500).json(ApiResponse.error(500, "", {
       success: false,
       message: "cevap kayıt edilemedi.",
@@ -394,28 +431,12 @@ const detail = asyncHandler(async (req, res) => {
     if (!user) {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
     }
-
+    let userid = user._id
+    console.log("userid", userid)
+    console.log("conversationid", conversationid)
+    const conDb = new ConversationDB()
     // 🗂 **Konuşmayı Veri Tabanından Getir**
-    const _conversation = await Conversation.findOne({ conversationid })
-      .populate([
-        { path: "messages", model: "message" },
-        {
-          path: "messages", model: "message",
-          populate: [
-            {
-              path: "systemData.recommendations",
-              model: "recommendation",
-              populate: [
-                { path: "productid", model: "product" },
-                { path: "serviceid", model: "service" },
-                { path: "companyid", model: "company" }
-              ]
-            },
-            { path: "productionQuestions", model: "question" },
-            { path: "servicesQuestions", model: "question" }
-          ]
-        }
-      ]);
+    const _conversation = await conDb.read({ userid, conversationid })
 
     // 🚨 **Hatalı veya Geçersiz Konuşma Kontrolü**
     if (!_conversation) {
@@ -439,8 +460,8 @@ const historyies = asyncHandler(async (req, res) => {
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
   try {
-    const _conversation = await Conversation.find({ userid: user._id, status: CONSTANT.active, delete: false })
-
+    const conDb = new ConversationDB()
+    const _conversation = await conDb.readMany({ userid: user._id, status: CONSTANT.active, delete: false })
     const historyies = _conversation.map((item) => {
       return {
         conversationid: item.conversationid,
@@ -462,7 +483,7 @@ const historyies = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  create, conversation, historyies, detail, answer
+  create, conversation, historyies, detail, answer, deleteQuestion
 };
 
 

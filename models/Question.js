@@ -4,7 +4,6 @@ class Question {
     constructor(data) {
         if (data != null) {
             this._id = data._id;
-            this.conversationid = data.conversationid;
             this.questionText = data.questionText;
             this.important = data.important || "low"; // Varsayılan olarak "low"
             this.input_type = data.input_type || "";
@@ -20,9 +19,7 @@ class Question {
         return this._id;
     }
 
-    getConversationId() {
-        return this.conversationid;
-    }
+  
 
     getQuestionText() {
         return this.questionText;
@@ -52,10 +49,7 @@ class Question {
         return this.updatedAt;
     }
 
-    // 🔹 Setter Metodları
-    setConversationId(conversationid) {
-        this.conversationid = conversationid;
-    }
+  
 
     setQuestionText(questionText) {
         this.questionText = questionText;

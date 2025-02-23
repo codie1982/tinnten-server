@@ -15,7 +15,7 @@ class Message {
             this.servicesQuestions = (data.servicesQuestions || []).map(msg => new Question(msg));
             this.search_context = data.search_context || [];
             this.recommendations = (data.recommendations || []).map(msg => new Recommendation(msg));
-            this.action = []; // ✅ Yeni action alanı eklendi
+            this.action = ""; // ✅ Yeni action alanı eklendi
             this.createdAt = data.createdAt;
             this.updatedAt = data.updatedAt;
         }

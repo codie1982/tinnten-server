@@ -10,7 +10,7 @@ const messageSchema = new mongoose.Schema({
   productionQuestions: [{ type: mongoose.Schema.Types.ObjectId, ref: "question" }], // LLM'in sorduğu sorunun ID'si
   servicesQuestions: [{ type: mongoose.Schema.Types.ObjectId, ref: "question" }], // LLM'in sorduğu sorunun ID'si
   search_context: [{ type: String }], // arama terimleri
-  action: [{ type: String }], // eylemler
+  action: { type: String }, // eylemler
   // 🔹 "System Message" için özel alanlar
   recommendations: [{ type: mongoose.Schema.Types.ObjectId, ref: "recommendation" }] // Öneriler
 

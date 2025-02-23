@@ -1,11 +1,11 @@
 const BaseDB = require('./BaseDB');
 const Conversation = require("../mongoModels/conversationModel");
+const { populate } = require('../mongoModels/messageModel');
 class ConversationMongoDB extends BaseDB {
 
 
     async create(data) {
         try {
-            console.log("data", data)
             const conversation = new Conversation(data);
             return await conversation.save();
         } catch (error) {
@@ -25,16 +25,53 @@ class ConversationMongoDB extends BaseDB {
                                 model: "question"
                             },
                             {
-                                path: "servicesQuestions", // Önce `productionQuestions` içindeki ID'leri doldur
+                                path: "servicesQuestions", //
                                 model: "question"
                             },
                             {
-                                path: "recommendations", // Önce `productionQuestions` içindeki ID'leri doldur
-                                model: "recommendation"
+                                path: "recommendations", // 
+                                model: "recommendation",
+                                populate: [
+                                    {
+                                        path: "products", // 
+                                        model: "products",
+                                        populate: [
+                                            {
+                                                path: "basePrice", // 
+                                                model: "price",
+                                            },
+                                            {
+                                                path: "gallery", // 
+                                                model: "gallery",
+                                                populate:{
+                                                    path: "images", // 
+                                                    model: "images",
+                                                }
+                                            }
+
+                                        ]
+                                    },
+                                    {
+                                        path: "services", // 
+                                        model: "services"
+                                    },
+                                    {
+                                        path: "companyies", // 
+                                        model: "companyprofile"
+                                    },
+                                ]
                             },
                         ]
                     },
                 ])
+            return result; // Eğer sonuç varsa ilkini döndür
+        } catch (error) {
+            throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+        }
+    }
+    async readMany(query) {
+        try {
+            const result = await Conversation.find(query)
             return result; // Eğer sonuç varsa ilkini döndür
         } catch (error) {
             throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
