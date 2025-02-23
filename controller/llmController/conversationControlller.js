@@ -217,17 +217,17 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
     // **Mesaj bloğu boş olamaz**
-    if (!human_message || human_message.trim() === "") {
-      console.warn("[Conversation] Empty human message");
-      return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz", {
-        message: "Lütfen bir mesaj girin."
-      }));
-    }
+    if (conversation.messages.length == 0)
+      if (!human_message || human_message.trim() === "") {
+        console.warn("[Conversation] Empty human message");
+        return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz", {
+          message: "Lütfen bir mesaj girin."
+        }));
+      }
 
     console.log("[Conversation] Retrieving LLM orientation context...");
     const context = await LLM.getOrientationContext(userkey, conversation, human_message);
     console.log("context", context);
-    console.log("context", context.content.products)
     console.log("[Conversation] Received context with finish_reason:", context.finish_reason);
     if (!context || context.finish_reason !== "stop") {
       console.error("[Conversation] LLM process incomplete");
@@ -260,12 +260,13 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
     let isMemorySaved = false;
-    if (context.content.includeInContext) {
+    //context.content.includeInContext
+    if (true) {
       console.log("[Conversation] Saving memory for conversation...");
 
       // Retrieve the current state of the conversation
       let tempConversation = new Conversation(await dbCon.read({ userid, conversationid }));
-      console.log("[Conversation] Current conversation state retrieved:", tempConversation);
+      console.log("[Conversation] Current conversation state retrieved:");
 
       // Initialize MemoryManager and load the conversation memory
       let memoryManager = new MemoryManager();
