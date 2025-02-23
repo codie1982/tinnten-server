@@ -54,11 +54,12 @@ class ProductsDB extends BaseDB {
             const agg = [
                 {
                     '$vectorSearch': {
-                        index: 'tinnten_product_vector_index',
-                        path: 'vector',
-                        queryVector: vector,
-                        exact: true,  // Değiştirdik
-                        limit: limit
+                        "index": 'tinnten_product_vector_index',
+                        "path": 'vector',
+                        "queryVector": vector,
+                        "numCandidates": 100,  // Daha iyi sonuç için artırılabilir
+                        "limit": limit,
+                        "metric": "cosine"
                     }
                 }
             ];

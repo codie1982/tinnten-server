@@ -1,5 +1,5 @@
 const summarizeContext = async (conversation) => {
-
+    console.log("summarizeContext - conversation")
     return `
     Sen bir yardımcı asistansın. Kullanıcı ile olan önceki konuşmaların bir özetini çıkarmalısın.
     
@@ -15,13 +15,34 @@ const summarizeContext = async (conversation) => {
             }).join('')}
 
     ** Önerilen Ürünler:**
-    ${conversation?.recommendations?.filter(r => r.productid).map(r => `- ${r.productid.title} (Skor: ${r.score})`).join("\n")}
+    ${conversation.messages
+            ?.map((item) => {
+                return item?.recommendations?.map((recom) => {
+                    return recom.products.map((product) => `Ürün ismi: ${product?.title}\n`)
+                }
+
+                ).join('') || '';  // Eğer boşsa, en azından boş string dön
+            }).join('')}
     
     ** Önerilen Hizmetler:**
-    ${conversation?.recommendations?.filter(r => r.serviceid).map(r => `- ${r.serviceid.name} (Skor: ${r.score})`).join("\n")}
+    ${conversation.messages
+            ?.map((item) => {
+                return item?.recommendations?.map((recom) => {
+                    return recom.services.map((service) => `Ürün ismi: ${service?.name}\n`)
+                }
+
+                ).join('') || '';  // Eğer boşsa, en azından boş string dön
+            }).join('')}
     
     ** Önerilen Şirketler:**
-    ${conversation?.recommendations?.filter(r => r.companyid).map(r => `- ${r.companyid.companyName} (Skor: ${r.score})`).join("\n")}
+     ${conversation.messages
+            ?.map((item) => {
+                return item?.recommendations?.map((recom) => {
+                    return recom.companyies.map((company) => `Ürün ismi: ${company?.companyName}\n`)
+                }
+
+                ).join('') || '';  // Eğer boşsa, en azından boş string dön
+            }).join('')}
 `
 }
 

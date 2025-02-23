@@ -231,6 +231,7 @@ const orientationContext = (user, conversation, human_message) => {
         Davranışsal kullanıcı modeli: {userBehaviorModel}  
         Konuşma özeti: {conversation_summary}  
         Soru Cevap: {conversation_questions}  
+        Önceki konuşmalar: {before_message}
         Kullanıcı isteği: {human_message}
         `;
 
@@ -252,6 +253,21 @@ const orientationContext = (user, conversation, human_message) => {
                 _conversation.messages.map((item) => {
                     return item.productionQuestions.map((quest) => `Soru : ${quest.questionText}\nCevap : ${quest?.answer}\n`).join('')
                 }).join('') : "")
+
+
+            .replace("{before_message}", _conversation ?
+                _conversation.messages.map((item) => {
+                    let content = ""
+                    if (item.type == "human_message") {
+                        content += `Kullanıcı sorusu : ${item.content}\n`
+
+                    } else if (item.type == "human_message") {
+                        content += `\Sistem cevabı : ${item.content}`
+                    }
+                    return
+                }).join('') : "")
+
+
             .replace("{human_message}", human_message)
 
         console.log("[orientationContext] Final context built.")
