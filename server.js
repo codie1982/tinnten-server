@@ -1,4 +1,3 @@
-
 require("dotenv").config()
 require("colors")
 const path = require('path');
@@ -42,6 +41,7 @@ const ImageModel = require("./mongoModels/imagesModel")
 
 const bodyParser = require("body-parser");
 const { default: axios } = require("axios");
+const { exists } = require("./mongoModels/messageModel");
 const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
@@ -196,6 +196,8 @@ app.post('/addproducts', async (req, res) => {
               { text: vectorText }
             );
             console.log("vectorResponse", vectorResponse.data)
+
+
             /*   // Fiyat dönüşümü
               let priceString = row["Ürün Fiyatı"] || "";
               priceString = priceString.replace(/"/g, '');
@@ -278,33 +280,37 @@ app.post('/addproducts', async (req, res) => {
 });
 app.get("/fix-vectors", async (req, res) => {
   try {
-    // MongoDB'den ilk 2 dokümanı al
-    const documents = await ProductModel.find()
-
+    // MongoDB'den tüm dokümanları al
+    const documents = await ProductModel.find();
+    let exsit = documents.length;
     if (!documents.length) {
       console.log("Düzeltilecek vektör bulunamadı.");
       return res.status(404).json({ message: "Düzeltilecek vektör bulunamadı." });
     }
 
     for (let doc of documents) {
+      let startTime = Date.now();
       console.log("Mevcut Doküman:", doc._id);
       
       // Eğer `vector` alanı yoksa veya array değilse, atla
       if (!doc.vector || !Array.isArray(doc.vector)) {
         console.log(`Hata: ${doc._id} dokümanında vector alanı eksik veya hatalı.`);
         continue; // Bu dokümanı atla, diğerlerini güncelle
-      }
-
-      console.log("Orijinal Vector:", doc.vector);
-
-      // İç içe geçmiş vektörü düz hale getir (undefined koruması ile)
-      let flatVector = flattenArray(doc.vector) || [];
-
+      }      
+      // Vektör metnini oluştur
+      const vectorText = `${doc["meta"]} - ${doc["title"]} - ${doc["description"]} - ${doc["redirectUrl"][0]}`;
+      console.log("vectorText", vectorText);
+      const vectorResponse = await axios.post(
+        process.env.EMBEDDING_URL + "/api/v10/llm/vector",
+        { text: vectorText }
+      );
+      let _vector = vectorResponse.data.vector;
+      
       // MongoDB'de güncelleme yap
       const upt = await ProductModel.updateOne(
         { _id: doc._id },
         {
-          $set: { vector: flatVector } // Güncellenmiş düz vector
+          $set: { vector: _vector } // Güncellenmiş düz vector
         }
       );
 
@@ -313,8 +319,13 @@ app.get("/fix-vectors", async (req, res) => {
       } else {
         console.log(`Güncelleme Yapılmadı: ${doc._id}`);
       }
+      
+      let finishTime = Date.now() - startTime;
+      exsit -= 1;
+      let remaindTime = finishTime * exsit;
+      console.log(exsit, " adet kaldı", " - ", remaindTime, " - ", " Süre kaldı");
     }
-
+   
     res.status(200).json({ message: "Düzeltme işlemi tamamlandı." });
 
   } catch (error) {

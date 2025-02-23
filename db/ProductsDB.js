@@ -49,6 +49,7 @@ class ProductsDB extends BaseDB {
     }
 
     async search(vector, limit) {
+        //vector boyutu 768 model: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
         try {
             const agg = [
                 {
