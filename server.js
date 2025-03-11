@@ -12,6 +12,9 @@ const cookieParser = require('cookie-parser');
 const { errorHandler } = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
 
+const { sendEmail } = require("./services/mailServices")
+
+
 const authRouters = require("./routes/authRouters")
 const usersRoutes = require("./routes/userRoutes")
 const profilRoutes = require("./routes/profilRoutes")
@@ -24,6 +27,7 @@ const servicesRouters = require("./routes/servicesRouters")
 const bidRequestRouters = require("./routes/bidRequestRouters")
 const bidResponseRouters = require("./routes/bidResponseRouters")
 const favoriteRouters = require("./routes/favoriteRouters")
+const crawlerRouters = require("./routes/crawlerRouters")
 
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
@@ -91,6 +95,8 @@ app.use("/api/v10/bid-response", bidResponseRouters)
 app.use("/api/v10/favorite", favoriteRouters)
 
 app.use("/api/v10/upload", uploadRoutes)
+
+app.use("/api/crawler/", crawlerRouters)
 
 /* app.get('/sitemap.xml', (req, res) => {
   res.header('Content-Type', 'application/xml');
@@ -291,12 +297,12 @@ app.get("/fix-vectors", async (req, res) => {
     for (let doc of documents) {
       let startTime = Date.now();
       console.log("Mevcut Doküman:", doc._id);
-      
+
       // Eğer `vector` alanı yoksa veya array değilse, atla
       if (!doc.vector || !Array.isArray(doc.vector)) {
         console.log(`Hata: ${doc._id} dokümanında vector alanı eksik veya hatalı.`);
         continue; // Bu dokümanı atla, diğerlerini güncelle
-      }      
+      }
       // Vektör metnini oluştur
       const vectorText = `${doc["meta"]} - ${doc["title"]} - ${doc["description"]} - ${doc["redirectUrl"][0]}`;
       console.log("vectorText", vectorText);
@@ -305,7 +311,7 @@ app.get("/fix-vectors", async (req, res) => {
         { text: vectorText }
       );
       let _vector = vectorResponse.data.vector;
-      
+
       // MongoDB'de güncelleme yap
       const upt = await ProductModel.updateOne(
         { _id: doc._id },
@@ -319,14 +325,34 @@ app.get("/fix-vectors", async (req, res) => {
       } else {
         console.log(`Güncelleme Yapılmadı: ${doc._id}`);
       }
-      
+
       let finishTime = Date.now() - startTime;
       exsit -= 1;
       let remaindTime = finishTime * exsit;
       console.log(exsit, " adet kaldı", " - ", remaindTime, " - ", " Süre kaldı");
     }
-   
+
     res.status(200).json({ message: "Düzeltme işlemi tamamlandı." });
+
+  } catch (error) {
+    console.error("Error fetching data from local network:", error);
+    res.status(500).send("Error fetching data from local network");
+  }
+});
+app.post("/test-mail", async (req, res) => {
+  try {
+
+    const send = await sendEmail("engin_erol@hotmail.com", "Konu", "Mesaj")
+      .catch(() => {
+      res.status(400).json({ message: "test mail gönderilmedi." });
+    });
+    console.log("send", send);
+    if (send) {
+      res.status(200).json({ message: "test mail gönderildi" });
+    } 
+
+
+
 
   } catch (error) {
     console.error("Error fetching data from local network:", error);

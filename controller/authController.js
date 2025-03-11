@@ -16,7 +16,10 @@ const { OAuth2Client } = require("google-auth-library");
 const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
 
-
+const SCOPE = "https://www.googleapis.com/auth/userinfo.profile email openid"
+const redirecServertUrl = "http://127.0.0.1:5001"
+const redirecUrl = "http://127.0.0.1:3000"
+const allow_origin_url = "http://localhost:3000"
 
 
 const register = asyncHandler(async (req, res) => {
@@ -99,6 +102,110 @@ const register = asyncHandler(async (req, res) => {
   }
 });
 
+const createurl = asyncHandler(async (req, res) => {
+  try {
+    const oAuth2Client = new OAuth2Client(
+      process.env.CLIENT_ID,
+      process.env.CLIENT_SECRET,
+      redirecServertUrl
+    );
+    const url = oAuth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: SCOPE,
+      prompt: "consent",
+    });
+    if (url) {
+      return res.status(200).json(ApiResponse.success(200, "created google url", {
+        url: url
+      }));
+    } else {
+      res.status(401).json({ error: 'no google url' });
+
+    }
+
+  } catch (error) {
+    res.status(401).json({ error: 'no google url' });
+  }
+});
+const google = asyncHandler(async (req, res) => {
+  const { email, device, provider, password, firstName, lastName } = req.body;
+
+  try {
+    // **1️⃣ İstemci ve Rol Bilgilerini Paralel Al**
+    const [clientId, role] = await Promise.all([
+      Keycloak.getClientId("tinnten-client"),
+      Keycloak.getRole(await Keycloak.getClientId("tinnten-client"), "user"),
+    ]);
+
+    // **2️⃣ Keycloak Üzerinde Kullanıcı Oluştur**
+    await Keycloak.createUser(email, password, firstName, lastName, { device, provider }, false);
+
+    // **3️⃣ Kullanıcı ID’sini Al**
+    const userId = await Keycloak.getUserId(email);
+
+    // **4️⃣ Kullanıcıya Rol Ata**
+    await Keycloak.assignRoleToUser(userId, clientId, role);
+
+    // **5️⃣ Kullanıcıyı MongoDB’ye Kaydet**
+    let userDoc = new User({ keyid: userId });
+    let nUser = await userDoc.save();
+
+    if (!nUser) return res.status(400).json({ error: "Kullanıcı oluşturulamadı." });
+
+    let userid = nUser._id;
+    console.log("📌 Kullanıcı DB ID:", userid);
+
+    // **6️⃣ Kullanıcıya Varsayılan Paket ve Bilgileri Ata**
+    const sPackage = await SystemPackage.findOne({
+      forCompany: false,
+      default_package: true,
+      delete: false,
+      status: "active",
+    });
+    console.log("sPackage", sPackage)
+
+    const [nAccount, nPhone, nAddress, nSocial, nImages] = await Promise.all([
+      new Account({ userid, packages: [{ packageid: sPackage._id }] }).save(),
+      // new Phone({ userid }).save(),
+      // new Address({ userid }).save(),
+      // new Social({ userid }).save(),
+      // new Images({ userid }).save()
+    ]);
+    console.log("nAccount", nAccount)
+
+    let nProfile = await new Profile({
+      userid,
+      profileImage: {},
+      accounts: [],
+      phones: [],
+      address: [],
+      sociallinks: [],
+    }).save();
+    console.log("nProfile", nProfile)
+
+    // **7️⃣ Kullanıcı Otomatik Giriş Yapsın**
+    const tokenData = await Keycloak.getUserToken(email, password);
+
+    return res.status(201).json({
+      status: { code: 200, description: "Success" },
+      message: "Oturum açıldı",
+      data: {
+        message: "Başarıyla giriş yapıldı",
+        user: {
+          sub: userId,
+          email,
+          given_name: firstName,
+          family_name: lastName,
+        },
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Register Error:", err.message);
+    return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
+  }
+});
 /*
       try {
         await publishToQueue('email_queue', {
@@ -262,7 +369,7 @@ const validate = asyncHandler(async (req, res) => {
 const refreshtoken = asyncHandler(async (req, res) => {
   const refreshToken = req.cookies['refresh_token']; // Refresh Token'ı cookie'den al
   try {
-    console.log("refreshToken",refreshToken)
+    console.log("refreshToken", refreshToken)
     const response = await Keycloak.refreshUserToken(refreshToken)
 
     res.json({ access_token: response.data.access_token });
@@ -273,5 +380,5 @@ const refreshtoken = asyncHandler(async (req, res) => {
 
 
 module.exports = {
-  refreshtoken, logout, register, login, validate
+  refreshtoken, logout, register, login, validate, google, createurl
 };

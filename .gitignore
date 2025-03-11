@@ -24,7 +24,7 @@ coverage
 .lock-wscript
 
 *.csv
-
+extracted_products_lcw.json
 
 # Dependency directories
 node_modules

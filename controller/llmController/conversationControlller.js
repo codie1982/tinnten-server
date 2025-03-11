@@ -10,149 +10,17 @@ const ApiResponse = require("../../helpers/response.js")
 const User = require("../../mongoModels/userModel.js")
 const UserProfil = require("../../mongoModels/userProfilModel.js")
 const Conversation = require("../../models/Conversation")
-const ConversationModel = require("../../mongoModels/conversationModel.js");
 const ConversationDB = require("../../db/ConversationMongoDB.js");
-const Message = require("../../db/ConversationMongoDB.js")
-const MessageModel = require("../../mongoModels/messageModel.js");
-
 
 const MODEL1 = "gpt-3.5-turbo"
 const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
 
-
-
-
-const SummarizeAgent = require("../../llm/agents/memoryAgent.js");
 const MemoryManager = require("../../llm/memory/MemoryManager.js");
 const { MessageFactory } = require("../../lib/message/MessageProcessor.js");
-const ConversationMongoDB = require("../../db/ConversationMongoDB.js");
 const QuestionDB = require("../../db/QuestionDB.js");
-
-
-
-
-
 const CONSTANT = { active: "active" }
-const system_message = [
-  {
-    human_message: "Merhaba!",
-    system_message: "Tabii ki sizin için en iyi seçimleri bulmaya çalışacağım.",
-    recommendation_products: [
-      {
-        productGroup: {
-          id: 1,
-          product_group_name: "Bisiklet",
-          product_list: [
-            {
-              product_name: "15 Jant Kız Bisikleti Pembe",
-              product_image: "https://m.media-amazon.com/images/I/61SDGi3p00L.__AC_SY300_SX300_QL70_ML2_.jpg",
-              product_price: "1.970,00 TL",
-              product_brand: "Bisiklet Markası",
 
-            },
-            {
-              product_name: "18 Jant Erkek Bisikleti Siyah",
-              product_image: "https://productimages.hepsiburada.net/s/424/960-1280/110000454576458.jpg",
-              product_price: "2.500,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "15 Jant Kız Bisikleti Pembe",
-              product_image: "https://m.media-amazon.com/images/I/71fv5NCG97L._AC_SL1500_.jpg",
-              product_price: "1.970,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "18 Jant Erkek Bisikleti Siyah",
-              product_image: "https://productimages.hepsiburada.net/s/424/960-1280/110000454576458.jpg",
-              product_price: "2.500,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "15 Jant Kız Bisikleti Pembe",
-              product_image: "https://m.media-amazon.com/images/I/61SDGi3p00L.__AC_SY300_SX300_QL70_ML2_.jpg",
-              product_price: "1.970,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "18 Jant Erkek Bisikleti Siyah",
-              product_image: "https://productimages.hepsiburada.net/s/424/960-1280/110000454576458.jpg",
-              product_price: "2.500,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "18 Jant Erkek Bisikleti Siyah",
-              product_image: "https://productimages.hepsiburada.net/s/424/960-1280/110000454576458.jpg",
-              product_price: "2.500,00 TL",
-              product_brand: "Bisiklet Markası"
-            },
-            {
-              product_name: "18 Jant Erkek Bisikleti Siyah",
-              product_image: "https://productimages.hepsiburada.net/s/424/960-1280/110000454576458.jpg",
-              product_price: "2.500,00 TL",
-              product_brand: "Bisiklet Markası"
-            }
-          ],
-          filter: [
-            {
-              id: 11,
-              title: "brand",
-              options: ["marka-1", "marka-2", "marka-3"],
-            },
-            {
-              id: 12,
-              title: "color",
-              options: ["renk-1", "renk-2", "renk-3"],
-            },
-            {
-              id: 13,
-              title: "size",
-              options: ["size-1", "size-2", "size-3"]
-            }
-          ]
-        }
-      },
-      {
-        productGroup: {
-          id: 2,
-          product_group_name: "Bisiklet Aksesuarları",
-          product_list: [
-            {
-              product_name: "Bisiklet Kaskı",
-              product_image: "bisiklet_kaski.jpg",
-              product_price: "150,00 TL",
-              product_brand: "Aksesuar Markası",
-            },
-            {
-              product_name: "Bisiklet Çantası",
-              product_image: "bisiklet_cantasi.jpg",
-              product_price: "100,00 TL",
-              product_brand: "Aksesuar Markası",
-            }
-          ],
-          filter: [
-            {
-              id: 21,
-              title: "brand",
-              options: ["marka-1", "marka-2", "marka-3"],
-            },
-            {
-              id: 22,
-              title: "color",
-              options: ["renk-1", "renk-2", "renk-3"],
-            },
-            {
-              id: 23,
-              title: "size",
-              options: ["size-1", "size-2", "size-3"]
-            }
-          ]
-        }
-      }
-    ],
-  },
-]
 //privete public
 const conversation = asyncHandler(async (req, res) => {
   console.log("[Conversation] Request received with body:", req.body)
