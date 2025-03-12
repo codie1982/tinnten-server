@@ -1,99 +1,33 @@
 //General Library
 const asyncHandler = require("express-async-handler");
-const axios = require("axios");
 var geoip = require('geoip-lite');
 const User = require("../mongoModels/userModel.js");
-const Images = require("../mongoModels/imagesModel.js")
-const Profile = require("../mongoModels/userProfilModel.js")
-const Phone = require("../mongoModels/phoneModel.js")
-const Address = require("../mongoModels/addresModel.js")
-const Social = require("../mongoModels/socilaLinksModel.js")
-const SystemPackage = require("../mongoModels/systemPackageModel.js")
-const Account = require("../mongoModels/accountModel.js")
-const { v4: uuidv4 } = require('uuid');
 const { OAuth2Client } = require("google-auth-library");
 //helper
 const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
-
+const { registerUser, loginUser } = require("../services/authServices.js");
+const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
 const SCOPE = "https://www.googleapis.com/auth/userinfo.profile email openid"
-const redirecServertUrl = "http://127.0.0.1:5001"
-const redirecUrl = "http://127.0.0.1:3000"
+const REDIRECTURI = "http://localhost:5001/api/v10/auth/google"
 const allow_origin_url = "http://localhost:3000"
+const googleAuth = require("../helpers/google/auth/client_secret_721191351028-6hlrcg30kvqjqk2ani5nl265ibrde07v.apps.googleusercontent.com");
 
 
 const register = asyncHandler(async (req, res) => {
   const { email, device, provider, password, firstName, lastName } = req.body;
 
   try {
-    // **1️⃣ İstemci ve Rol Bilgilerini Paralel Al**
-    const [clientId, role] = await Promise.all([
-      Keycloak.getClientId("tinnten-client"),
-      Keycloak.getRole(await Keycloak.getClientId("tinnten-client"), "user"),
-    ]);
-
-    // **2️⃣ Keycloak Üzerinde Kullanıcı Oluştur**
-    await Keycloak.createUser(email, password, firstName, lastName, { device, provider }, false);
-
-    // **3️⃣ Kullanıcı ID’sini Al**
-    const userId = await Keycloak.getUserId(email);
-
-    // **4️⃣ Kullanıcıya Rol Ata**
-    await Keycloak.assignRoleToUser(userId, clientId, role);
-
-    // **5️⃣ Kullanıcıyı MongoDB’ye Kaydet**
-    let userDoc = new User({ keyid: userId });
-    let nUser = await userDoc.save();
-
-    if (!nUser) return res.status(400).json({ error: "Kullanıcı oluşturulamadı." });
-
-    let userid = nUser._id;
-    console.log("📌 Kullanıcı DB ID:", userid);
-
-    // **6️⃣ Kullanıcıya Varsayılan Paket ve Bilgileri Ata**
-    const sPackage = await SystemPackage.findOne({
-      forCompany: false,
-      default_package: true,
-      delete: false,
-      status: "active",
-    });
-    console.log("sPackage", sPackage)
-
-    const [nAccount, nPhone, nAddress, nSocial, nImages] = await Promise.all([
-      new Account({ userid, packages: [{ packageid: sPackage._id }] }).save(),
-      // new Phone({ userid }).save(),
-      // new Address({ userid }).save(),
-      // new Social({ userid }).save(),
-      // new Images({ userid }).save()
-    ]);
-    console.log("nAccount", nAccount)
-
-    let nProfile = await new Profile({
-      userid,
-      profileImage: {},
-      accounts: [],
-      phones: [],
-      address: [],
-      sociallinks: [],
-    }).save();
-    console.log("nProfile", nProfile)
-
-    // **7️⃣ Kullanıcı Otomatik Giriş Yapsın**
-    const tokenData = await Keycloak.getUserToken(email, password);
+    const result = await registerUser({ email, device, provider, password, firstName, lastName });
 
     return res.status(201).json({
       status: { code: 200, description: "Success" },
       message: "Oturum açıldı",
       data: {
         message: "Başarıyla giriş yapıldı",
-        user: {
-          sub: userId,
-          email,
-          given_name: firstName,
-          family_name: lastName,
-        },
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
+        user: result.user,
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
       },
     });
   } catch (err) {
@@ -103,12 +37,16 @@ const register = asyncHandler(async (req, res) => {
 });
 
 const createurl = asyncHandler(async (req, res) => {
+  res.header("Access-Control-Allow-Origin", allow_origin_url);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Referrer-Policy", "no-referrer-when-downgrade");
   try {
     const oAuth2Client = new OAuth2Client(
-      process.env.CLIENT_ID,
-      process.env.CLIENT_SECRET,
-      redirecServertUrl
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      REDIRECTURI
     );
+
     const url = oAuth2Client.generateAuthUrl({
       access_type: "offline",
       scope: SCOPE,
@@ -127,192 +65,192 @@ const createurl = asyncHandler(async (req, res) => {
     res.status(401).json({ error: 'no google url' });
   }
 });
+
 const google = asyncHandler(async (req, res) => {
-  const { email, device, provider, password, firstName, lastName } = req.body;
-
   try {
-    // **1️⃣ İstemci ve Rol Bilgilerini Paralel Al**
-    const [clientId, role] = await Promise.all([
-      Keycloak.getClientId("tinnten-client"),
-      Keycloak.getRole(await Keycloak.getClientId("tinnten-client"), "user"),
-    ]);
+    const code = req.query.code;
+    if (!code) return res.status(400).json({ error: "Google OAuth kodu eksik!" });
 
-    // **2️⃣ Keycloak Üzerinde Kullanıcı Oluştur**
-    await Keycloak.createUser(email, password, firstName, lastName, { device, provider }, false);
+    const userAgent = req.headers["user-agent"];
+    const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+    const geo = geoip.lookup(ip);
 
-    // **3️⃣ Kullanıcı ID’sini Al**
-    const userId = await Keycloak.getUserId(email);
+    const REDIRECT_URI = "http://localhost:5000/auth/google/callback"; // Google Console'daki redirect URI ile eşleşmeli!
 
-    // **4️⃣ Kullanıcıya Rol Ata**
-    await Keycloak.assignRoleToUser(userId, clientId, role);
-
-    // **5️⃣ Kullanıcıyı MongoDB’ye Kaydet**
-    let userDoc = new User({ keyid: userId });
-    let nUser = await userDoc.save();
-
-    if (!nUser) return res.status(400).json({ error: "Kullanıcı oluşturulamadı." });
-
-    let userid = nUser._id;
-    console.log("📌 Kullanıcı DB ID:", userid);
-
-    // **6️⃣ Kullanıcıya Varsayılan Paket ve Bilgileri Ata**
-    const sPackage = await SystemPackage.findOne({
-      forCompany: false,
-      default_package: true,
-      delete: false,
-      status: "active",
+    // Google OAuth2 İstemcisi
+    const oAuth2Client = new OAuth2Client({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri: REDIRECT_URI,
     });
-    console.log("sPackage", sPackage)
 
-    const [nAccount, nPhone, nAddress, nSocial, nImages] = await Promise.all([
-      new Account({ userid, packages: [{ packageid: sPackage._id }] }).save(),
-      // new Phone({ userid }).save(),
-      // new Address({ userid }).save(),
-      // new Social({ userid }).save(),
-      // new Images({ userid }).save()
-    ]);
-    console.log("nAccount", nAccount)
+    console.log("Google Auth Kodu:", code);
 
-    let nProfile = await new Profile({
-      userid,
-      profileImage: {},
-      accounts: [],
-      phones: [],
-      address: [],
-      sociallinks: [],
-    }).save();
-    console.log("nProfile", nProfile)
+    // Google'dan token al
+    const { tokens } = await oAuth2Client.getToken(code);
+    if (!tokens || !tokens.access_token) {
+      return res.status(400).json({ error: "Google token alınamadı!" });
+    }
 
-    // **7️⃣ Kullanıcı Otomatik Giriş Yapsın**
-    const tokenData = await Keycloak.getUserToken(email, password);
+    oAuth2Client.setCredentials(tokens);
 
-    return res.status(201).json({
-      status: { code: 200, description: "Success" },
-      message: "Oturum açıldı",
-      data: {
-        message: "Başarıyla giriş yapıldı",
-        user: {
-          sub: userId,
-          email,
-          given_name: firstName,
-          family_name: lastName,
-        },
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
-      },
+    // Kullanıcı bilgilerini al
+    const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
+    const googleData = await response.json();
+
+    console.log("Google Kullanıcı Bilgileri:", googleData);
+
+    const {
+      sub,
+      name,
+      given_name,
+      family_name,
+      picture,
+      email,
+      email_verified,
+    } = googleData;
+
+    // Eğer email doğrulanmamışsa giriş yapmasına izin verme
+    if (!email_verified) {
+      return res.status(400).json({ error: "Email doğrulanmamış." });
+    }
+
+    // Kullanıcının var olup olmadığını kontrol et
+    const device = "web";
+    const provider = "google";
+    let isExist = false;
+
+    try {
+      isExist = await Keycloak.isUserExist(email);
+      console.log("isExist:", isExist);
+    } catch (err) {
+      console.error("❌ Keycloak Kullanıcı Kontrol Hatası:", err.message);
+      return res.status(500).json({ error: "Kullanıcı kontrolü sırasında hata oluştu." });
+    }
+
+    let loginData;
+    try {
+      if (isExist) {
+        // Kullanıcı varsa login yap
+        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+      } else {
+        // Kullanıcı yoksa kayıt yap ve ardından login yap
+        await registerUser({ email, device, provider, password: email, firstName: given_name, lastName: family_name, picture });
+        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+      }
+    } catch (err) {
+      console.error("❌ Kullanıcı Giriş/Kayıt Hatası:", err.message);
+      return res.status(500).json({ error: "Kullanıcı işlemi sırasında hata oluştu." });
+    }
+
+    console.log("loginData:", loginData);
+
+    // Refresh token'ı cookie'ye yaz
+    res.cookie("refresh_token", loginData.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax",
+      path: "/",
     });
+
+    // Kullanıcıyı frontend’e yönlendir
+    res.redirect("http://127.0.0.1:3000"); // Fazladan `}` karakteri kaldırıldı
+
   } catch (err) {
-    console.error("❌ Register Error:", err.message);
+    console.error("❌ Genel Google Auth Hatası:", err.message);
     return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
   }
 });
-/*
-      try {
-        await publishToQueue('email_queue', {
-          type: 'email',
-          data: {
-            to: email,
-            subject: 'Kayıt Başarılı!',
-            message: `Kayıt işleminiz başarıyla tamamlandı!`
-          }
-        });
-      } catch (error) {
-        console.log("emailResponse error", error.response ? error.response.data : error.message);
-      }
-      */
-// **Kullanıcı Profili oluşturma**
+/* 
+const google = asyncHandler(async (req, res) => {
 
-//access public
+  const code = req.query.code;
+  const userAgent = req.headers["user-agent"];
+  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+  const geo = geoip.lookup(ip);
+
+
+
+
+  const oAuth2Client = new OAuth2Client(
+    {
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri: REDIRECTURI
+    }
+  );
+  console.log("code", code)
+  const { tokens } = await oAuth2Client.getToken(code);
+  oAuth2Client.setCredentials(tokens);
+
+  const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
+  const googleData = await response.json();
+
+  console.log("Google Kullanıcı Bilgileri:", googleData);
+  const {
+    sub,
+    name,
+    given_name,
+    family_name,
+    picture,
+    email,
+    email_verified,
+  } = googleData;
+
+  // Gelen kullanıcı verisinde email_verified olması gerekiyorsa kontrol edelim
+  if (!email_verified) {
+    return res.status(400).json({ error: "Email doğrulanmamış." });
+  }
+
+  try {
+    // Google ile kayıt için device ve provider bilgilerini varsayalım
+    const device = "web";
+    const provider = "google";
+    // İlk olarak kullanıcı var mı kontrol et
+    const isExist = await Keycloak.isUserExist(email);
+
+    console.log("isExist:", isExist);
+    let loginData;
+    if (isExist) {
+      // Eğer kullanıcı varsa login işlemini yap (şifre olarak email kullanılıyor)
+      loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+    } else {
+      // Kullanıcı yoksa register edip sonra login yap
+      await registerUser({ email, device, provider, password: email, firstName: given_name, lastName: family_name, picture });
+      loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+    }
+    console.log("loginData:", loginData);
+    // Refresh token'ı cookie'ye yaz
+    res.cookie('refresh_token', loginData.refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Lax',
+      path: '/',
+    });
+    res.redirect(`http://127.0.0.1:3000`);
+    //return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
+  } catch (err) {
+    console.error("❌ Google Auth Error:", err.message);
+    return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
+  }
+});
+ */
 const login = asyncHandler(async (req, res) => {
   const { email, password, device, deviceid } = req.body;
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
 
-  if (!device) {
-    return res.status(400).json(ApiResponse.error(400, "Cihaz bilgisi eksik", { message: "Cihaz türü belirtilmeli (web, mobile, tv)." }));
-  }
-
   try {
-    // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
-    const tokenData = await Keycloak.getUserToken(email, password);
-    const { access_token, refresh_token } = tokenData;
-
-    // ✅ Refresh Token'ı Cookie'ye yaz
-    res.cookie('refresh_token', refresh_token, {
+    const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo });
+    // ✅ Refresh Token'ı Cookie'ye yazma işlemi burada yapılabilir
+    res.cookie('refresh_token', loginData.refreshToken, {
       httpOnly: true,
       secure: false,
       sameSite: 'Lax',
       path: '/',
     });
-
-    // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
-    const userInfo = await Keycloak.getUserInfo(access_token);
-    const userkeyid = userInfo.sub;
-    let user = await User.findOne({ keyid: userkeyid })
-    if (!user) {
-      user = await new User({ keyid: userkeyid }).save();
-    }
-    const userid = user._id
-    const profiles = await Profile.findOne({ userid })
-      .populate("profileImage")
-      .populate({
-        path: "accounts",
-        populate: {
-          path: "packages.packageid", // DİKKAT: "packages" içindeki "packageid" populate edilecek
-          model: "system-packages", // Eğer otomatik algılanmazsa modeli burada belirtmelisin
-          select: ["name", "title", "description", "category", "price", "duration", "discount", "isRenewable"]
-        }
-      })
-      .populate("phones")
-      .populate("address")
-      .populate("sociallinks");
-
-    // **3️⃣ Kullanıcının aktif oturumlarını al**
-    const activeSessions = await Keycloak.getUserSessions(userkeyid);
-
-    let isSameDevice = false;
-    let isNewDevice = true;
-    let sameSession;
-
-    activeSessions.forEach((session) => {
-      if (session.ipAddress === ip && session.userAgent === userAgent) {
-        isSameDevice = true;
-        sameSession = session;
-      }
-      if (session.deviceInfo?.deviceid === deviceid) {
-        isNewDevice = false;
-      }
-    });
-
-    if (isSameDevice) {
-      return res.status(400).json(ApiResponse.error(400, "Bu cihaz zaten oturum açık", {
-        message: "Bu cihazda zaten aktif bir oturumunuz var."
-      }));
-    }
-
-    // **4️⃣ Kullanıcının maksimum oturum sayısını kontrol et**
-    const MAX_SESSIONS = 3;
-    if (activeSessions.length > MAX_SESSIONS) {
-      await Keycloak.terminateOldSessions(userkeyid, activeSessions, MAX_SESSIONS);
-    }
-
-    // **5️⃣ Kullanıcı yeni bir cihazdan giriş yaptıysa e-posta bildirimi gönder**
-    if (isNewDevice) {
-      await Keycloak.sendDeviceChangeEmail(email, userInfo.name, new Date(), device, userAgent, ip);
-    }
-
-    delete userInfo.sub
-    // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
-    return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", {
-      message: isNewDevice ? "Başarıyla yeni bir cihazdan giriş yapıldı" : "Başarıyla giriş yapıldı",
-      info: userInfo,
-      profiles,
-      access_token,
-      refresh_token,
-      lang: geo ? (geo.country === "TR" ? "TR" : "EN") : "TR"
-    }));
-
+    return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
   } catch (error) {
     console.error("Login Error:", error.message);
     return res.status(500).json(ApiResponse.error(500, "Oturum açma hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
@@ -341,7 +279,6 @@ const logout = asyncHandler(async (req, res) => {
   }
 });
 
-
 //private public
 const validate = asyncHandler(async (req, res) => {
   const access_token = req.kauth.grant.access_token.token;
@@ -366,10 +303,92 @@ const validate = asyncHandler(async (req, res) => {
   }
 });
 
+const sendcode = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  try {
+    if (!access_token) {
+      console.warn("Erişim tokeni bulunamadı veya geçersiz");
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme Hatası", {
+        message: "Erişim tokeni bulunamadı veya geçersiz."
+      }));
+    }
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı Bulunamadı", {
+        message: "Belirtilen kullanıcı sistemde kayıtlı değil."
+      }));
+    }
+    const userid = user._id;
+    try {
+      console.log("sendVerificationEmail")
+      await sendVerificationEmail(userid, 'granitjeofizik@gmail.com', user.firstName || 'Kullanıcı');
+      return res.status(200).json(ApiResponse.success(200, "Doğrulama kodu gönderildi", { userId: userid }));
+    } catch (error) {
+      console.error("Doğrulama kodu gönderilirken hata oluştu:", error.message);
+      return res.status(500).json(ApiResponse.error(500, "Doğrulama kodu gönderilemedi", {
+        message: "Bir hata oluştu, lütfen daha sonra tekrar deneyin."
+      }));
+    }
+  } catch (error) {
+    console.error("Kullanıcı bilgileri alınırken hata oluştu:", error.message);
+    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri alınamadı", {
+      message: "Bir hata oluştu, lütfen daha sonra tekrar deneyin."
+    }));
+  }
+});
+
+const mailverify = asyncHandler(async (req, res) => {
+  const { code } = req.body;
+  console.log("code", code)
+  const access_token = req.kauth.grant.access_token.token;
+
+  if (!access_token) {
+    console.warn("Erişim tokeni bulunamadı veya geçersiz");
+    return res.status(401).json(ApiResponse.error(401, "Yetkilendirme Hatası", {
+      message: "Erişim tokeni bulunamadı veya geçersiz."
+    }));
+  }
+
+  const userkey = await Keycloak.getUserInfo(access_token);
+  console.log("userkey", userkey)
+
+  const useremail = userkey.email;
+  const user = await User.findOne({ keyid: userkey.sub });
+  console.log("user", user)
+
+  if (!user) {
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı Bulunamadı", {
+      message: "Belirtilen kullanıcı sistemde kayıtlı değil."
+    }));
+  }
+  const userid = user._id;
+  console.log("userid", userid)
+
+  try {
+    console.log("userid, code", userid, code)
+    const isVerify = await checkMailVerifyCode(userid, code);
+    console.log("isVerify", isVerify)
+    if (!isVerify) {
+      return res.status(400).json(ApiResponse.error(400, "Doğrulama Hatası", {
+        message: "Girilen doğrulama kodu hatalı."
+      }));
+    }
+    await Keycloak.verifyUserEmail(useremail);
+    // Refresh token after verifying email, using existing refresh token from cookies
+    await sendWelcomeMail("granitjeofizik@gmail.com", "Engin EROL")
+    return res.json(ApiResponse.success(200, "wellcode tinnten", { message: "Tinnten\'e Hoşgeldiniz" }));
+  } catch (error) {
+    console.error("Doğrulama sırasında hata:", error.message);
+    return res.status(500).json(ApiResponse.error(500, "Doğrulama Hatası", {
+      message: error.message
+    }));
+  }
+});
+
 const refreshtoken = asyncHandler(async (req, res) => {
   const refreshToken = req.cookies['refresh_token']; // Refresh Token'ı cookie'den al
   try {
-    console.log("refreshToken", refreshToken)
     const response = await Keycloak.refreshUserToken(refreshToken)
 
     res.json({ access_token: response.data.access_token });
@@ -380,5 +399,5 @@ const refreshtoken = asyncHandler(async (req, res) => {
 
 
 module.exports = {
-  refreshtoken, logout, register, login, validate, google, createurl
+  refreshtoken, logout, register, login, validate, google, createurl, sendcode, mailverify
 };

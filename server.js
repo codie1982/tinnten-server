@@ -342,14 +342,14 @@ app.get("/fix-vectors", async (req, res) => {
 app.post("/test-mail", async (req, res) => {
   try {
 
-    const send = await sendEmail("engin_erol@hotmail.com", "Konu", "Mesaj")
+    const send = await sendEmail("standart", "granitjeofizik@gmail.com", "Konu", { data: "mesaj" })
       .catch(() => {
-      res.status(400).json({ message: "test mail gönderilmedi." });
-    });
-    console.log("send", send);
+        res.status(400).json({ message: "test mail gönderilmedi." });
+      });
+
     if (send) {
       res.status(200).json({ message: "test mail gönderildi" });
-    } 
+    }
 
 
 
