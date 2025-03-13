@@ -12,7 +12,6 @@ const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require(
 const SCOPE = "https://www.googleapis.com/auth/userinfo.profile email openid"
 const REDIRECTURI = "http://localhost:5001/api/v10/auth/google"
 const allow_origin_url = "http://localhost:3000"
-const googleAuth = require("../helpers/google/auth/client_secret_721191351028-6hlrcg30kvqjqk2ani5nl265ibrde07v.apps.googleusercontent.com");
 
 
 const register = asyncHandler(async (req, res) => {
