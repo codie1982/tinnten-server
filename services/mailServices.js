@@ -51,6 +51,7 @@ async function sendEmail(emailType, to, subject, content) {
     } else {
       console.warn("⚠️ MongoDB bağlantısı yok, mail logu kaydedilemedi.");
     }
+    
 
   } catch (error) {
     console.error(`❌ Mail gönderim hatası (${emailType}):`, error);
