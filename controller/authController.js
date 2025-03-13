@@ -1,6 +1,7 @@
 //General Library
 const asyncHandler = require("express-async-handler");
 var geoip = require('geoip-lite');
+const jwt = require("jsonwebtoken");
 const User = require("../mongoModels/userModel.js");
 const { OAuth2Client } = require("google-auth-library");
 //helper
@@ -41,11 +42,11 @@ const createurl = asyncHandler(async (req, res) => {
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Referrer-Policy", "no-referrer-when-downgrade");
   try {
-    const oAuth2Client = new OAuth2Client(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      REDIRECTURI
-    );
+    const oAuth2Client = new OAuth2Client({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      redirectUri: REDIRECTURI,
+    });
 
     const url = oAuth2Client.generateAuthUrl({
       access_type: "offline",
@@ -75,13 +76,12 @@ const google = asyncHandler(async (req, res) => {
     const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
     const geo = geoip.lookup(ip);
 
-    const REDIRECT_URI = "http://localhost:5000/auth/google/callback"; // Google Console'daki redirect URI ile eşleşmeli!
 
     // Google OAuth2 İstemcisi
     const oAuth2Client = new OAuth2Client({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: REDIRECT_URI,
+      redirectUri: REDIRECTURI,
     });
 
     console.log("Google Auth Kodu:", code);
@@ -142,99 +142,52 @@ const google = asyncHandler(async (req, res) => {
       console.error("❌ Kullanıcı Giriş/Kayıt Hatası:", err.message);
       return res.status(500).json({ error: "Kullanıcı işlemi sırasında hata oluştu." });
     }
-
-    console.log("loginData:", loginData);
-
-    // Refresh token'ı cookie'ye yaz
-    res.cookie("refresh_token", loginData.refreshToken, {
+    // **JWT Token Oluştur**
+    const token = jwt.sign(loginData, process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+    // **Token'ı Cookie olarak ekle**
+    res.cookie("auth_token", token, {
       httpOnly: true,
-      secure: false,
+      secure: false, // Eğer HTTPS kullanıyorsan `true` yap
       sameSite: "Lax",
-      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
     });
 
     // Kullanıcıyı frontend’e yönlendir
-    res.redirect("http://127.0.0.1:3000"); // Fazladan `}` karakteri kaldırıldı
+    res.redirect(`http://127.0.0.1:3000/google-auth?success=true`);
 
   } catch (err) {
     console.error("❌ Genel Google Auth Hatası:", err.message);
     return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
   }
 });
-/* 
-const google = asyncHandler(async (req, res) => {
-
-  const code = req.query.code;
-  const userAgent = req.headers["user-agent"];
-  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
-  const geo = geoip.lookup(ip);
-
-
-
-
-  const oAuth2Client = new OAuth2Client(
-    {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: REDIRECTURI
-    }
-  );
-  console.log("code", code)
-  const { tokens } = await oAuth2Client.getToken(code);
-  oAuth2Client.setCredentials(tokens);
-
-  const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
-  const googleData = await response.json();
-
-  console.log("Google Kullanıcı Bilgileri:", googleData);
-  const {
-    sub,
-    name,
-    given_name,
-    family_name,
-    picture,
-    email,
-    email_verified,
-  } = googleData;
-
-  // Gelen kullanıcı verisinde email_verified olması gerekiyorsa kontrol edelim
-  if (!email_verified) {
-    return res.status(400).json({ error: "Email doğrulanmamış." });
-  }
-
+const googlelogin = asyncHandler(async (req, res) => {
   try {
-    // Google ile kayıt için device ve provider bilgilerini varsayalım
-    const device = "web";
-    const provider = "google";
-    // İlk olarak kullanıcı var mı kontrol et
-    const isExist = await Keycloak.isUserExist(email);
+    const authToken = req.cookies["auth_token"];
+    if (!authToken) return res.status(401).json({ error: "Yetkisiz erişim" });
+  
+    try {
+      const loginData = jwt.verify(token, process.env.JWT_SECRET);
+      res.clearCookie("auth_token");
+      res.json(loginData);
 
-    console.log("isExist:", isExist);
-    let loginData;
-    if (isExist) {
-      // Eğer kullanıcı varsa login işlemini yap (şifre olarak email kullanılıyor)
-      loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
-    } else {
-      // Kullanıcı yoksa register edip sonra login yap
-      await registerUser({ email, device, provider, password: email, firstName: given_name, lastName: family_name, picture });
-      loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+      res.cookie('refresh_token', loginData.refreshToken, {
+        httpOnly: true,
+        secure: false,
+        sameSite: 'Lax',
+        path: '/',
+      });
+      return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
+    } catch (err) {
+      res.status(401).json({ error: "Geçersiz token" });
     }
-    console.log("loginData:", loginData);
-    // Refresh token'ı cookie'ye yaz
-    res.cookie('refresh_token', loginData.refreshToken, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'Lax',
-      path: '/',
-    });
-    res.redirect(`http://127.0.0.1:3000`);
-    //return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
   } catch (err) {
-    console.error("❌ Google Auth Error:", err.message);
+    console.error("❌ Genel Google Auth Hatası:", err.message);
     return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
   }
 });
- */
+
 const login = asyncHandler(async (req, res) => {
   const { email, password, device, deviceid } = req.body;
   const userAgent = req.headers["user-agent"];
@@ -279,7 +232,6 @@ const logout = asyncHandler(async (req, res) => {
   }
 });
 
-//private public
 const validate = asyncHandler(async (req, res) => {
   const access_token = req.kauth.grant.access_token.token;
   try {
@@ -399,5 +351,5 @@ const refreshtoken = asyncHandler(async (req, res) => {
 
 
 module.exports = {
-  refreshtoken, logout, register, login, validate, google, createurl, sendcode, mailverify
+  refreshtoken, logout, register, login, validate, google,googlelogin, createurl, sendcode, mailverify
 };

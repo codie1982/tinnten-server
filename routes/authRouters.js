@@ -1,12 +1,13 @@
 const express = require("express")
 const route = express.Router()
-const { register,google,createurl, login, refreshtoken,logout,validate,sendcode,mailverify } = require("../controller/authController")
+const { register,google,googlelogin,createurl, login, refreshtoken,logout,validate,sendcode,mailverify } = require("../controller/authController")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 
 
 route.post("/login", login)
 route.post("/register", register)
 route.get("/google", google)
+route.get("/google/login", googlelogin)
 route.post("/createurl", createurl)
 route.post("/refresh-token", refreshtoken)
 route.get("/validate", validate)
