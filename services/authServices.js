@@ -87,10 +87,10 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
     const userInfo = await Keycloak.getUserInfo(access_token);
 
-  /*   console.log("userInfo",userInfo)
-    if (!userInfo.email_verified) {
-        throw new Error("Mail Adresi verify değil.");
-    } */
+    /*   console.log("userInfo",userInfo)
+      if (!userInfo.email_verified) {
+          throw new Error("Mail Adresi verify değil.");
+      } */
 
     const userkeyid = userInfo.sub;
     let user = await User.findOne({ keyid: userkeyid });
@@ -141,6 +141,7 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
         message: isNewDevice ? "Başarıyla yeni bir cihazdan giriş yapıldı" : "Başarıyla giriş yapıldı",
         info: userInfo,
         profiles,
+        userid,
         accessToken: access_token,
         refreshToken: refresh_token,
         lang: geo ? (geo.country === "TR" ? "TR" : "EN") : "TR"

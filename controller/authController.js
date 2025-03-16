@@ -18,18 +18,16 @@ const register = asyncHandler(async (req, res) => {
   const { email, device, provider, password, firstName, lastName } = req.body;
 
   try {
-    const result = await registerUser({ email, device, provider, password, firstName, lastName });
-
-    return res.status(201).json({
-      status: { code: 200, description: "Success" },
+    await registerUser({ email, device, provider, password, firstName, lastName });
+    loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+    await sendVerificationEmail(loginData.userid, email, firstName || 'Kullanıcı');
+    return res.status(201).json(ApiResponse.success(201, "", {
+      status: { code: 201, description: "Success" },
       message: "Oturum açıldı",
-      data: {
-        message: "Başarıyla giriş yapıldı",
-        user: result.user,
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-      },
-    });
+      data: loginData,
+      sendCode: false
+    }));
+
   } catch (err) {
     console.error("❌ Register Error:", err.message);
     return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
@@ -65,7 +63,6 @@ const createurl = asyncHandler(async (req, res) => {
     res.status(401).json({ error: 'no google url' });
   }
 });
-
 const google = asyncHandler(async (req, res) => {
   try {
     const code = req.query.code;
@@ -142,19 +139,21 @@ const google = asyncHandler(async (req, res) => {
       return res.status(500).json({ error: "Kullanıcı işlemi sırasında hata oluştu." });
     }
     // **JWT Token Oluştur**
-    const token = jwt.sign(loginData, process.env.JWT_SECRET,
+    const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN,
       { expiresIn: "7d" }
     );
+    console.log("token", token)
     // **Token'ı Cookie olarak ekle**
     res.cookie("auth_token", token, {
       httpOnly: true,
-      secure: false, // Eğer HTTPS kullanıyorsan `true` yap
-      sameSite: "Lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
+      secure: false,
+      sameSite: 'Lax',
+      path: '/',
     });
 
+
     // Kullanıcıyı frontend’e yönlendir
-    res.redirect(`http://127.0.0.1:3000/google-auth?success=true`);
+    res.redirect(`http://localhost:3000/google-auth?success=true&token=${token}`);
 
   } catch (err) {
     console.error("❌ Genel Google Auth Hatası:", err.message);
@@ -163,13 +162,14 @@ const google = asyncHandler(async (req, res) => {
 });
 const googlelogin = asyncHandler(async (req, res) => {
   try {
-    const authToken = req.cookies["auth_token"];
-    if (!authToken) return res.status(401).json({ error: "Yetkisiz erişim" });
-  
+    const authToken = req.body.token//req.cookies["auth_token"];
+    if (!authToken) return res.status(600).json({ error: "auth token bulunmuyor" });
+
     try {
-      const loginData = jwt.verify(token, process.env.JWT_SECRET);
-      res.clearCookie("auth_token");
-      res.json(loginData);
+      const loginData = jwt.verify(authToken, process.env.JWT_SECRET_AUTH_TOKEN);
+      console.log("loginData", loginData)
+
+
 
       res.cookie('refresh_token', loginData.refreshToken, {
         httpOnly: true,
@@ -177,7 +177,13 @@ const googlelogin = asyncHandler(async (req, res) => {
         sameSite: 'Lax',
         path: '/',
       });
-      return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
+
+      return res.status(200).json(ApiResponse.success(200, "", {
+        status: { code: 200, description: "Success" },
+        message: "Oturum açıldı",
+        data: loginData,
+        sendCode: false
+      }));
     } catch (err) {
       res.status(401).json({ error: "Geçersiz token" });
     }
@@ -202,7 +208,14 @@ const login = asyncHandler(async (req, res) => {
       sameSite: 'Lax',
       path: '/',
     });
-    return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", loginData));
+
+
+    return res.status(200).json(ApiResponse.success(200, "", {
+      status: { code: 200, description: "Success" },
+      message: "Oturum açıldı",
+      data: loginData,
+      sendCode: false
+    }));
   } catch (error) {
     console.error("Login Error:", error.message);
     return res.status(500).json(ApiResponse.error(500, "Oturum açma hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
@@ -350,5 +363,5 @@ const refreshtoken = asyncHandler(async (req, res) => {
 
 
 module.exports = {
-  refreshtoken, logout, register, login, validate, google,googlelogin, createurl, sendcode, mailverify
+  refreshtoken, logout, register, login, validate, google, googlelogin, createurl, sendcode, mailverify
 };
