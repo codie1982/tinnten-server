@@ -3,6 +3,7 @@ const asyncHandler = require("express-async-handler");
 var geoip = require('geoip-lite');
 const jwt = require("jsonwebtoken");
 const User = require("../mongoModels/userModel.js");
+const MailVerify = require("../mongoModels/mailverifyModel.js");
 const { OAuth2Client } = require("google-auth-library");
 //helper
 const ApiResponse = require("../helpers/response.js");
@@ -94,8 +95,6 @@ const google = asyncHandler(async (req, res) => {
     const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
     const googleData = await response.json();
 
-    console.log("Google Kullanıcı Bilgileri:", googleData);
-
     const {
       sub,
       name,
@@ -118,7 +117,7 @@ const google = asyncHandler(async (req, res) => {
 
     try {
       isExist = await Keycloak.isUserExist(email);
-      console.log("isExist:", isExist);
+
     } catch (err) {
       console.error("❌ Keycloak Kullanıcı Kontrol Hatası:", err.message);
       return res.status(500).json({ error: "Kullanıcı kontrolü sırasında hata oluştu." });
@@ -142,7 +141,7 @@ const google = asyncHandler(async (req, res) => {
     const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN,
       { expiresIn: "7d" }
     );
-    console.log("token", token)
+
     // **Token'ı Cookie olarak ekle**
     res.cookie("auth_token", token, {
       httpOnly: true,
@@ -167,9 +166,6 @@ const googlelogin = asyncHandler(async (req, res) => {
 
     try {
       const loginData = jwt.verify(authToken, process.env.JWT_SECRET_AUTH_TOKEN);
-      console.log("loginData", loginData)
-
-
 
       res.cookie('refresh_token', loginData.refreshToken, {
         httpOnly: true,
@@ -286,8 +282,16 @@ const sendcode = asyncHandler(async (req, res) => {
     const userid = user._id;
     try {
       console.log("sendVerificationEmail")
+
+      const verifyCode = await MailVerify.findOne({ userid })
+      console.log("verifyCode",verifyCode)
+      if (verifyCode) return res.status(404).json(ApiResponse.error(404, "Aktif bir kodu bulunmakta", {
+        message: "Aktif bir kodunuz bulunmakta. Bir süre sonra tekrar deneyin."
+      }));
+
       await sendVerificationEmail(userid, 'granitjeofizik@gmail.com', user.firstName || 'Kullanıcı');
-      return res.status(200).json(ApiResponse.success(200, "Doğrulama kodu gönderildi", { userId: userid }));
+
+      return res.status(200).json(ApiResponse.success(200, "Doğrulama kodu gönderildi", { sendcode: true }));
     } catch (error) {
       console.error("Doğrulama kodu gönderilirken hata oluştu:", error.message);
       return res.status(500).json(ApiResponse.error(500, "Doğrulama kodu gönderilemedi", {
@@ -319,7 +323,6 @@ const mailverify = asyncHandler(async (req, res) => {
 
   const useremail = userkey.email;
   const user = await User.findOne({ keyid: userkey.sub });
-  console.log("user", user)
 
   if (!user) {
     return res.status(404).json(ApiResponse.error(404, "Kullanıcı Bulunamadı", {
@@ -334,13 +337,13 @@ const mailverify = asyncHandler(async (req, res) => {
     const isVerify = await checkMailVerifyCode(userid, code);
     console.log("isVerify", isVerify)
     if (!isVerify) {
-      return res.status(400).json(ApiResponse.error(400, "Doğrulama Hatası", {
+      return res.status(404).json(ApiResponse.error(404, "Doğrulama Hatası", {
         message: "Girilen doğrulama kodu hatalı."
       }));
     }
     await Keycloak.verifyUserEmail(useremail);
     // Refresh token after verifying email, using existing refresh token from cookies
-    await sendWelcomeMail("granitjeofizik@gmail.com", "Engin EROL")
+    //await sendWelcomeMail("granitjeofizik@gmail.com", "Engin EROL")
     return res.json(ApiResponse.success(200, "wellcode tinnten", { message: "Tinnten\'e Hoşgeldiniz" }));
   } catch (error) {
     console.error("Doğrulama sırasında hata:", error.message);

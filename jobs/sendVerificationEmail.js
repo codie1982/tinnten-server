@@ -56,16 +56,17 @@ async function sendWelcomeMail(to, name) {
 }
 
 async function checkMailVerifyCode(userid, code) {
-  const mailverify = await MailVerify.findOne({
-    userid
-  });
-  console.log("mailverify", mailverify)
-  console.log("mailverify.code === code", mailverify.code === code)
-  console.log("if (new Date() > mailverify.expireDate) ", (new Date() > mailverify.expireDate) )
-  if (!mailverify) return false;
-  // Check if the verification code has expired
-  //if (new Date() > mailverify.expireDate) return false;
-  return mailverify.code === code;
+  const mailverify = await MailVerify.findOne({ userid });
+  if (!mailverify) {
+    return false
+  }
+
+  // Verilen kod hatalı ise hata fırlat
+  if (mailverify.code !== code) {
+    return false
+  }
+
+  return true;
 }
 
 

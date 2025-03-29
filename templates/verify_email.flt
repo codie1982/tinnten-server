@@ -16,7 +16,7 @@
         <h2>Merhaba {{name}},</h2>
         <p>E-posta adresinizi doğrulamak için aşağıdaki kodu kullanabilirsiniz:</p>
         <div class="code">{{verification_code}}</div>
-        <p>Bu kod 10 dakika geçerlidir.</p>
+        <p>Bu kod 3 dakika geçerlidir.</p>
         <p class="footer">Bu e-posta otomatik olarak gönderilmiştir. Yanıtlamayınız.</p>
     </div>
 </body>

@@ -17,6 +17,7 @@ const Images = require("../mongoModels/imagesModel.js")
 //helper
 const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
+const { getUserProfile } = require("../services/profileServices.js");
 
 
 // **Kullanıcı Profili oluşturma**
@@ -74,26 +75,21 @@ const createProfile = asyncHandler(async (req, res) => {
 
 // **Tüm Profilleri Getirme**
 const getProfile = asyncHandler(async (req, res) => {
-  const access_token = req.kauth.grant.access_token.token;
-  const userkey = await Keycloak.getUserInfo(access_token)
-  const user = await User.findOne({ keyid: userkey.sub })
-
+   // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
+     const tokenData = await Keycloak.getUserToken(email, password);
+     const { access_token, refresh_token } = tokenData;
+ 
+     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
+     const userInfo = await Keycloak.getUserInfo(access_token);
+ 
+     const userkeyid = userInfo.sub;
+     let user = await User.findOne({ keyid: userkeyid });
+     if (!user) {
+         user = await new User({ keyid: userkeyid }).save();
+     }
+     const userid = user._id;
   try {
-    const profiles = await Profile.findOne({ userid: user._id })
-      .populate("profileImage")
-      .populate({
-        path: "accounts",
-        populate: {
-          path: "packages.packageid", // DİKKAT: "packages" içindeki "packageid" populate edilecek
-          model: "system-packages", // Eğer otomatik algılanmazsa modeli burada belirtmelisin
-          select: ["name", "title", "description", "category", "price", "duration", "discount", "isRenewable"]
-        }
-      })
-      .populate("phones")
-      .populate("address")
-      .populate("sociallinks");
-
-
+    const profiles = await getUserProfile(userid)
     return res.status(200).json(ApiResponse.success(200, "Profiller başarıyla getirildi.", profiles));
   } catch (err) {
     console.error("Get All Profiles Error:", err);

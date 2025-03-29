@@ -5,6 +5,6 @@ const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 
 
 
-route.post("/upload/profil/image", keycloak.protect(), uploadProfilImage)
+route.post("/profil/image", keycloak.protect(), uploadProfilImage)
 
 module.exports = route

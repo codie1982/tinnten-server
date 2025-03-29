@@ -4,7 +4,7 @@ const SystemPackage = require("../mongoModels/systemPackageModel.js");
 const Account = require("../mongoModels/accountModel.js");
 const Profile = require("../mongoModels/userProfilModel.js");
 const Images = require("../mongoModels/imagesModel.js")
-
+const {getUserProfile}  = require("./profileServices.js");
 
 async function registerUser({ email, device, provider, password, firstName, lastName, picture }) {
     // 1️⃣ İstemci ve rol bilgilerini paralel al
@@ -98,19 +98,8 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
         user = await new User({ keyid: userkeyid }).save();
     }
     const userid = user._id;
-    const profiles = await Profile.findOne({ userid })
-        .populate("profileImage")
-        .populate({
-            path: "accounts",
-            populate: {
-                path: "packages.packageid",
-                model: "system-packages",
-                select: ["name", "title", "description", "category", "price", "duration", "discount", "isRenewable"]
-            }
-        })
-        .populate("phones")
-        .populate("address")
-        .populate("sociallinks");
+
+    const profiles = await getUserProfile(userid);
 
     // **3️⃣ Aktif oturum kontrolü**
     const activeSessions = await Keycloak.getUserSessions(userkeyid);

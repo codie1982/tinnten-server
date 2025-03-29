@@ -17,6 +17,7 @@ class LLMAgent extends BaseAgent{
         let response = completion.choices[0].message.content
         console.log("[LLMAgent] Raw response:", response)
         const parseResponse = JSON.parse(this.cleanJSON(response));
+        
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
