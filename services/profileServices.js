@@ -1,6 +1,6 @@
 
 const Profile = require("../mongoModels/userProfilModel.js");
-async function getUserProfile({ userid }) {
+async function getUserProfile(userid) {
 
     const profiles = await Profile.findOne({ userid })
         .populate("profileImage")

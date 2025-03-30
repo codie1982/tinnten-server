@@ -60,7 +60,7 @@ async function registerUser({ email, device, provider, password, firstName, last
         address: [],
         sociallinks: [],
     }).save();
-    console.log("nProfile", nProfile);
+
 
     // 7️⃣ Kullanıcı otomatik giriş yapsın (token al)
     const tokenData = await Keycloak.getUserToken(email, password);
@@ -129,7 +129,6 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
     return {
         message: isNewDevice ? "Başarıyla yeni bir cihazdan giriş yapıldı" : "Başarıyla giriş yapıldı",
         info: userInfo,
-        profiles,
         userid,
         accessToken: access_token,
         refreshToken: refresh_token,

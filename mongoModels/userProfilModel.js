@@ -14,7 +14,7 @@ const profilSchema = new mongoose.Schema({
     }
   },
   bio: { type: String, default: "" },
-  genre: { type: String, enum: ['man', 'woman', 'pointout'], default: 'pointout' },
+  gender: { type: String, enum: ['man', 'woman', 'pointout'], default: 'pointout' },
   profileImage: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: "" },  // Varsayılan değer olarak boş bir obje döner,
   accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
   phones: [{ type: mongoose.Schema.Types.ObjectId, ref: "phones" }],

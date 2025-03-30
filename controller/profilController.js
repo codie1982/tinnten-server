@@ -30,7 +30,7 @@ const createProfile = asyncHandler(async (req, res) => {
     lastname,
     birthdate,
     bio,
-    genre,
+    gender,
     profileImage,
     status,
   } = req.body;
@@ -54,7 +54,7 @@ const createProfile = asyncHandler(async (req, res) => {
       lastname,
       birthdate,
       bio,
-      genre,
+      gender,
       profileImage,
       status,
     });
@@ -76,8 +76,7 @@ const createProfile = asyncHandler(async (req, res) => {
 // **Tüm Profilleri Getirme**
 const getProfile = asyncHandler(async (req, res) => {
    // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
-     const tokenData = await Keycloak.getUserToken(email, password);
-     const { access_token, refresh_token } = tokenData;
+    const access_token = req.kauth.grant.access_token.token;
  
      // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
      const userInfo = await Keycloak.getUserInfo(access_token);
@@ -89,7 +88,9 @@ const getProfile = asyncHandler(async (req, res) => {
      }
      const userid = user._id;
   try {
+
     const profiles = await getUserProfile(userid)
+    console.log("profiles", profiles) 
     return res.status(200).json(ApiResponse.success(200, "Profiller başarıyla getirildi.", profiles));
   } catch (err) {
     console.error("Get All Profiles Error:", err);
@@ -111,9 +112,24 @@ const updateProfile = asyncHandler(async (req, res) => {
       return res.status(404).json(ApiResponse.error({}, 404, "Kullanıcı bulunamadı."));
     }
 
+    /**
+     * bio : ""
+       birthdate         :         "2025-03-28T00:00:00.000Z"
+      firstname        :         "Engin"
+      gender        : 
+        "man"
+        lastname
+        : 
+        "EROL"
+        uploadid
+        : 
+        ""
+     */
     // Güncellenmesine izin verilen alanları al
-    const allowedFields = ["firstname", "lastname", "birthdate", "bio", "genre", "profileImage"];
+
+    const allowedFields = ["firstname", "lastname", "birthdate", "bio", "gender", "profileImage"];
     const updates = {};
+
 
     // `req.body` içinde yalnızca izin verilen alanları filtrele
     Object.keys(req.body).forEach((key) => {
@@ -121,6 +137,8 @@ const updateProfile = asyncHandler(async (req, res) => {
         updates[key] = req.body[key];
       }
     });
+
+    console.log("updates", updates)
 
     // Profil Güncelleme
     const updatedProfile = await Profile.findOneAndUpdate(
@@ -132,8 +150,9 @@ const updateProfile = asyncHandler(async (req, res) => {
     if (!updatedProfile) {
       return res.status(404).json(ApiResponse.error({}, 404, "Profil bulunamadı."));
     }
-
-    return res.status(200).json(ApiResponse.success(200, "Profil başarıyla güncellendi.", updatedProfile));
+    const userProfile = await getUserProfile(user._id);
+    console.log("userProfile", userProfile)
+    return res.status(200).json(ApiResponse.success(200, "Profil başarıyla güncellendi.", userProfile));
   } catch (err) {
     console.error("Update Profile Error:", err);
     return res.status(500).json(ApiResponse.error({}, 500, "Sunucu hatası: " + err.message));

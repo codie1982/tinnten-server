@@ -14,7 +14,6 @@ const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 const { checkRole } = require("../middleware/checkRole");
 
 
-
 route.post("/", keycloak.protect(), checkRole("admin"), createProfile)
 route.get("/", keycloak.protect(), getProfile)
 route.put("/", keycloak.protect(), updateProfile)
