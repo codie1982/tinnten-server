@@ -12,7 +12,22 @@ class ConversationMongoDB extends BaseDB {
             throw new Error("MongoDB: Konuşma oluşturulurken hata oluştu - " + error.message);
         }
     }
-
+    async findOne(query) {
+        try {
+            const result = await Conversation.findOne(query)
+            return result; // Eğer sonuç varsa ilkini döndür
+        } catch (error) {
+            throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+        }
+    }
+    async find(query) {
+        try {
+            const result = await Conversation.find(query)
+            return result; // Eğer sonuç varsa ilkini döndür
+        } catch (error) {
+            throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+        }
+    }
     async read(query) {
         try {
             const result = await Conversation.findOne(query)
@@ -43,7 +58,7 @@ class ConversationMongoDB extends BaseDB {
                                             {
                                                 path: "gallery", // 
                                                 model: "gallery",
-                                                populate:{
+                                                populate: {
                                                     path: "images", // 
                                                     model: "images",
                                                 }
@@ -75,6 +90,36 @@ class ConversationMongoDB extends BaseDB {
             return result; // Eğer sonuç varsa ilkini döndür
         } catch (error) {
             throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+        }
+    }
+    async readPaginated(query, page, limit) {
+        try {
+            const skip = (page - 1) * limit;
+            const results = await Conversation.find(query)
+                .limit(limit)
+                .skip(skip);
+            return results;
+        } catch (error) {
+            throw new Error("MongoDB: Konuşmalar alınırken hata oluştu - " + error.message);
+        }
+    }
+    async getHistoryList(query, page, limit) {
+        try {
+            const skip = (page - 1) * limit;
+            const results = await Conversation.find(query, "title conversationid")
+                .limit(limit)
+                .skip(skip);
+            return results;
+        } catch (error) {
+            throw new Error("MongoDB: Konuşmalar alınırken hata oluştu - " + error.message);
+        }
+    }
+    async gettotalCount(query) {
+        try {
+            const results = await Conversation.find(query).countDocuments();
+            return results;
+        } catch (error) {
+            throw new Error("MongoDB: Konuşmalar alınırken hata oluştu - " + error.message);
         }
     }
     async update(query, updateData) {
@@ -125,6 +170,25 @@ class ConversationMongoDB extends BaseDB {
             );
         } catch (error) {
             throw new Error("MongoDB: Konuşma geri getirilirken hata oluştu - " + error.message);
+        }
+    }
+
+
+    async search(userid, text) {
+        try {
+            const findConversation = await Conversation.aggregate([
+                {
+                    "$search": {
+                        "text": {
+                            "query": "" + text + "",
+                            "path": "message_content.content",
+                        }
+                    }
+                }
+            ])
+            return findConversation;
+        } catch (error) {
+            throw new Error("MongoDB: Mesaj arama yapılırken hata oluştu - " + error.message);
         }
     }
 }

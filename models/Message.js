@@ -6,6 +6,8 @@ class Message {
         if (data != null) {
             this._id = data._id;
             this.type = data.type;
+            this.userid = data.userid;
+            this.conversationid = data.conversationid;
             this.groupid = data.groupid;
             this.content = data.content;
             this.intent = data.intent || "";
@@ -26,6 +28,13 @@ class Message {
         return this._id;
     }
 
+    getUserid() {
+        return this.userid;
+    }
+    getConversationId() {
+        return this.conversationid;
+    }
+    
     getType() {
         return this.type;
     }
@@ -77,6 +86,12 @@ class Message {
     // Setters
     setType(type) {
         this.type = type;
+    }
+    setUserid(userid) {
+        this.userid = userid;
+    }
+    setConversationId(conversationid) {
+        this.conversationid = conversationid;
     }
 
     setGroupId(groupid) {

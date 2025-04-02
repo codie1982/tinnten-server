@@ -90,7 +90,6 @@ const getProfile = asyncHandler(async (req, res) => {
   try {
 
     const profiles = await getUserProfile(userid)
-    console.log("profiles", profiles) 
     return res.status(200).json(ApiResponse.success(200, "Profiller başarıyla getirildi.", profiles));
   } catch (err) {
     console.error("Get All Profiles Error:", err);

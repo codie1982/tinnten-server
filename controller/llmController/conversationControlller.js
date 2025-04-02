@@ -11,7 +11,7 @@ const User = require("../../mongoModels/userModel.js")
 const UserProfil = require("../../mongoModels/userProfilModel.js")
 const Conversation = require("../../models/Conversation")
 const ConversationDB = require("../../db/ConversationMongoDB.js");
-
+const MessageDB = require("../../db/messageDB.js");
 const MODEL1 = "gpt-3.5-turbo"
 const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
@@ -19,7 +19,10 @@ const Keycloak = require("../../lib/Keycloak.js");
 const MemoryManager = require("../../llm/memory/MemoryManager.js");
 const { MessageFactory } = require("../../lib/message/MessageProcessor.js");
 const QuestionDB = require("../../db/QuestionDB.js");
+const { parse } = require("dotenv");
 const CONSTANT = { active: "active" }
+
+const { getIO } = require('../../lib/Socket.js');
 
 //privete public
 const conversation = asyncHandler(async (req, res) => {
@@ -314,7 +317,6 @@ const detail = asyncHandler(async (req, res) => {
 
     // 🆗 **Başarıyla Konuşmayı Döndür**
     return res.status(200).json(ApiResponse.success(200, "Konuşma detayı", {
-      message: "Konuşma detayı",
       conversation: _conversation, // ✅ JSON formatında göndermek için değişken adı düzeltildi
     }));
 
@@ -329,21 +331,21 @@ const historyies = asyncHandler(async (req, res) => {
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
   try {
-    const conDb = new ConversationDB()
-    const _conversation = await conDb.readMany({ userid: user._id, status: CONSTANT.active, delete: false })
-    const historyies = _conversation.map((item) => {
-      return {
-        conversationid: item.conversationid,
-        title: item.title
-      }
-    })
+    // Retrieve page query parameter, default to page 1
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 5;
+    const conDb = new ConversationDB();
 
-    // **6️⃣ Kullanıcı bilgilerini ve token’ları döndür**
-    return res.status(200).json(ApiResponse.success(200, "Konuşma geçmişi",
-      {
-        message: "Konuşma geçmişi",
-        historyies,
-      }));
+    // Use readPaginated to get paged conversations.
+    // Assume readPaginated returns an object with 'data' and 'totalCount'
+    const historyList = await conDb.getHistoryList({ userid: user._id, status: CONSTANT.active, delete: false }, page, limit);
+    const totalCount = await conDb.gettotalCount({ userid: user._id, status: CONSTANT.active, delete: false })
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma geçmişi", {
+      history: historyList,
+      page,
+      totalCount
+    }));
 
   } catch (error) {
     console.error("Login Error:", error.response?.data || error);
@@ -351,132 +353,118 @@ const historyies = asyncHandler(async (req, res) => {
   }
 });
 
+const deleteConversation = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
+  const { conversationid } = req.query;
+  try {
+    const conDb = new ConversationDB();
+    // Use readPaginated to get paged conversations.
+    const findConversation = await conDb.findOne({ userid: user._id, status: CONSTANT.active, delete: false, conversationid })
+    if (!findConversation) {
+      return res.status(404).json(ApiResponse.error(404, "Konuşma bulunamadı", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
+    }
+    // Silme işlemi
+    await conDb.delete({ userid: user._id, status: CONSTANT.active, delete: false, conversationid });
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma Silindi", {
+      conversationid,
+    }));
+
+  } catch (error) {
+    console.error("Login Error:", error.response?.data || error);
+    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+  }
+});
+
+const updateTitle = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
+  const { title, conversationid } = req.body;
+  try {
+    const conDb = new ConversationDB();
+    // 
+    const findConversation = await conDb.findOne({ userid: user._id, status: CONSTANT.active, delete: false, conversationid })
+    if (!findConversation) {
+      return res.status(404).json(ApiResponse.error(404, "Konuşma bulunamadı", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
+    }
+    await conDb.update({ userid: user._id, status: CONSTANT.active, delete: false, conversationid }, { title });
+    return res.status(200).json(ApiResponse.success(200, "Konuşma başlığı düzenlendi", {
+      title, conversationid
+    }));
+
+  } catch (error) {
+    console.error("Login Error:", error.response?.data || error);
+    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+  }
+});
+
+const search = asyncHandler(async (req, res) => {
+  const searchText = req.query.q;
+  const page = Math.max(1, parseInt(req.query.p) || 1);
+  const limit = Math.max(1, parseInt(req.query.l) || 10);
+
+  if (!searchText) {
+    return res.status(400).json(ApiResponse.error(400, "Arama metni eksik", { message: "Geçerli bir arama metni sağlamalısınız" }));
+  }
+  const access_token = req.kauth.grant.access_token.token;
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
+
+  if (!user) {
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı" }));
+  }
+  const userid = user._id;
+
+  try {
+    // Benzersiz bir conversationid oluştur
+
+    const findConversationList = await new MessageDB().search(userid, searchText, page, limit);
+    // Konuşmayı kaydet
+    if (findConversationList) {
+      return res.status(200).json(ApiResponse.success(200, "mesajlar bulundu", {
+        results: findConversationList,
+      }));
+    } else {
+      return res.status(500).json(ApiResponse.error(500, "Konuşma başlatılamadı", { message: "Konuşma oluşturulurken bir hata oluştu" }));
+    }
+  } catch (error) {
+    console.error("Login Error:", error.response?.data || error);
+    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+  }
+});
+
+const feedbacktest = asyncHandler(async (req, res) => {
+  const access_token = req.kauth.grant.access_token.token;
+  const userkey = await Keycloak.getUserInfo(access_token);
+  const user = await User.findOne({ keyid: userkey.sub });
+  if (!user) {
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı" }));
+  }
+  const userid = user._id;
+
+  const io = getIO();
+  let count = 0;
+  const interval = setInterval(() => {
+    count++;
+    io.to(userid).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: `Mesaj #${count} gönderildi`,
+      timestamp: Date.now(),
+    });
+
+    if (count >= 10) {
+      clearInterval(interval);
+      // 💡 Son mesaj gönderildikten sonra HTTP response'u gönderiyoruz
+      res.status(200).json(ApiResponse.success(200, '10 feedback gönderildi', {}));
+    }
+  }, 500);
+});
+
 module.exports = {
-  create, conversation, historyies, detail, answer, deleteQuestion
+  create, conversation, deleteConversation, feedbacktest, updateTitle, historyies, detail, answer, deleteQuestion, search
 };
 
 
-
-
-/*
-       let systemMessage;
-       if (context.uncertainty_level == "high") {
-   
-         //istek de belirsizlik var ise sorular ile kullanıcıdan daha fazla bilgi almaya çalşıyoruz.absolute
-         let productionQuestionsIds = []
-         let servicesQuestionsIds = []
-         let productionQuestions = context.content.products?.question //ürünler için sorular
-   
-         if (context.content.request_type == "product" || context.content.request_type == "both") {
-   
-           if (productionQuestions.length != 0) {
-             for (let i = 0; productionQuestions.length; i++) {
-               let _questions = new Question({
-                 conversationid: nConversation._id,
-                 questionText: productionQuestions.q,  // LLM'in sorduğu soru
-                 important: productionQuestions.important,// {type:String,enum:["high","low"]},
-                 input_type: productionQuestions.input_type,
-                 options: productionQuestions.options,
-               })
-   
-               const nQuestion = await _questions.save()
-               productionQuestionsIds.push(nQuestion._id)
-             }
-           }
-         }
-         if (context.content.request_type == "service" || context.content.request_type == "both") {
-           let servicesQuestions = context.content.services?.question //Hizmetler için sorular
-   
-           if (servicesQuestionsIds.length != 0) {
-             for (let i = 0; servicesQuestions.length; i++) {
-               let _questions = new Question({
-                 conversationid: nConversation._id,
-                 questionText: servicesQuestions.q,  // LLM'in sorduğu soru
-                 important: servicesQuestions.important,// {type:String,enum:["high","low"]},
-                 input_type: servicesQuestions.input_type,
-                 options: servicesQuestions.options,
-               })
-   
-               const nQuestion = await _questions.save()
-               servicesQuestionsIds.push(nQuestion._id)
-             }
-           }
-         }
-   
-   
-   
-         systemMessage = new Message({
-           type: "system_message", // Mesaj türü
-           groupid: messageGroupid,
-           content: context.system_message,  // Mesaj içeriği
-           intent: context.context, // LLM niyet analizi
-           search_context: context.product.pro.search_context, // LLM niyet analizi
-           productionQuestions: productionQuestionsIds, // LLM'in sorduğu sorunun ID'si
-           servicesQuestions: servicesQuestionsIds, // LLM'in sorduğu sorunun ID'si
-           finish_reason: context.finish_reason,
-           systemData: {},
-         });
-   
-   
-         /**
-          *  conversation_usage: {
-             tokens: {
-               prompt_tokens: context.tokens.prompt_tokens,
-               completion_tokens: context.tokens.completion_tokens,
-               total_tokens: context.tokens.total_tokens,
-             },
-             cost: {
-               prompt_cost: context.cost.promptCost,
-               completion_cost: context.cost.completionCost,
-               total_cost: context.cost.totalCost,
-               unit: "DL"
-             }
-   
-           }
-         
-   
-         //Usage hesaplanması gerekiyor.
-   
-       } else if (context.uncertainty_level == "low") {
-         //tahminlenen ürünve hizmetler için yakınsama araması yapılacak.
-   
-         //ürün ve hizmetler için bir embedding oluşturulacak. ilgili filtreler için de embeddin oluşturulacak
-         //ve dbde olan ürünler ve  filtreler ile birlikte kullanıcıya önerilerde bulunulacak. 
-         //tahmini ürünlerin listesi ve ürün groupları
-         let products = context.content.products
-         //genel olarak kategoriler
-         let general_categories = context.content.general_categories
-         //Kullanıcının bağlamı
-         //yapılması gereken eylem
-         let action = context.content.action
-         //token miktarı
-         let tokens = context.tokens
-         //modele göre dolar cinsinden maliyet 
-         let cost = context.cost
-   
-         systemMessage = new Message({
-           type: "system_message", // Mesaj türü
-           groupid: messageGroupid,
-           content: context.system_message,  // Mesaj içeriği
-           intent: context.context, // LLM niyet analizi
-           search_context: context.search_context, // LLM niyet analizi
-           questions: [], // LLM'in sorduğu sorunun ID'si
-           finish_reason: "",
-           systemData: {},
-   
-         });
-   
-       } else {
-         console.log("context,", context)
-         systemMessage = new Message({
-           type: "system_message", // Mesaj türü
-           groupid: messageGroupid,
-           content: context.content.system_message,  // Mesaj içeriği
-           intent: context.context, // LLM niyet analizi
-           search_context: context.search_context, // LLM niyet analizi
-           questions: [],
-           finish_reason: context.finish_reason,
-           systemData: {},
-         });
-       }
-    */

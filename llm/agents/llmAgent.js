@@ -21,6 +21,8 @@ class LLMAgent extends BaseAgent{
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
+            userid: user._id,
+            conversationid: conversation._id,
             model: completion.model,
             content: parseResponse,
             finish_reason: completion.choices[0].finish_reason,

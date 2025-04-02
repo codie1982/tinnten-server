@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 // 🗣️ Mesaj Şeması (Kullanıcı ve LLM)
 const messageSchema = new mongoose.Schema({
   type: { type: String, enum: ["human_message", "system_message"], required: true }, // Mesaj türü
+  conversationid: { type: mongoose.Schema.Types.ObjectId, ref: "conversation", required: true }, // Konuşma ID'si
+  userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true }, // Kullanıcı ID'si
   groupid: { type: String, required: true },
   content: { type: String, required: true },  // Mesaj içeriği
   intent: { type: String, default: "" }, // LLM niyet analizi

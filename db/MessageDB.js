@@ -65,6 +65,36 @@ class MessageDB extends BaseDB {
             throw new Error("MongoDB: Mesaj geri getirilirken hata oluştu - " + error.message);
         }
     }
+
+    async search(userid, text, page, limit) {
+        try {
+            const findMessage = await Message.aggregate([
+                {
+                    $search: {
+                        index: "default",
+                        text: {
+                            query: text,
+                            path: {
+                                wildcard: "*"
+                            }
+                        }
+                    }
+                },
+               /*  {
+                    $match: {userid: userid}
+                }, */
+                {
+                    $skip: (page - 1) * limit
+                },
+                {
+                    $limit: limit
+                }
+            ]);
+            return findMessage;
+        } catch (error) {
+            throw new Error("MongoDB: Mesaj arama yapılırken hata oluştu - " + error.message);
+        }
+    }
 }
 
 module.exports = MessageDB;
