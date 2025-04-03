@@ -123,6 +123,9 @@ class CompanyModel {
         return this.updatedAt;
     }
 
+    setCompanyId(id) {
+        this._id = id
+    }
     // 🔹 Setter Metodları
     setUserId(userid) {
         this.userid = userid;

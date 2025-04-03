@@ -105,6 +105,35 @@ const conversation = asyncHandler(async (req, res) => {
       timestamp: Date.now(),
     });
     const context = await LLM.getOrientationContext(userkey, userid, conversation, human_message);
+
+    console.log("[Conversation Recommendation] Recommendation Products...");
+    console.log("context.content.products :", context.content.products);
+    console.log("[Conversation Recommendation] Recommendation Services...");
+    console.log("context.content.services :", context.content.services);
+    console.log("[Conversation Recommendation] Recommendation Question...");
+    console.log("context.content.services :", context.content.question);
+
+    if (context.content?.title != "") {
+      const conversationTitle = context.content.title
+      console.log("userid, conversationid", userid, conversationid)
+      await dbCon.update(
+        { userid, conversationid },
+        { title: conversationTitle } // Otomatik olarak `$push` kullanacak
+      );
+
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `Konuşma içeriği ${conversationTitle}`,
+        timestamp: Date.now(),
+      });
+      io.to(userid.toString()).emit('agent-update-title', {
+        title: `${conversationTitle}`,
+        conversationid: conversationid,
+        timestamp: Date.now(),
+      });
+    }
+
+
     io.to(userid.toString()).emit('agent-feedback', {
       agentId: 'agent-1',
       status: `${context.content.userBehaviorModel}`,
@@ -131,7 +160,7 @@ const conversation = asyncHandler(async (req, res) => {
     const systemMessage = MessageFactory.createMessage("system_message", messageGroupid, null, context);
     let nSystemMessage = await systemMessage.processAndSave();
     console.log("[Conversation] System message saved with id:", nSystemMessage._id);
-   
+
 
     io.to(userid.toString()).emit('agent-feedback', {
       agentId: 'agent-1',

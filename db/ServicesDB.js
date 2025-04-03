@@ -50,24 +50,31 @@ class ServicesDB extends BaseDB {
         try {
             const agg = [
                 {
-                    '$vectorSearch': {
+                    $vectorSearch: {
                         index: 'tinnten_product_vector_index',
                         path: 'vector',
                         queryVector: vector,
-                        exact: true,  // Değiştirdik
-                        limit
+                        numCandidates: 1000,
+                        limit: limit,
+                        metric: 'cosine'
+                    }
+                },
+                {
+                    $project: {
+                        _id: 1,
+                        score: { $meta: "vectorSearchScore" } // ✨ Skoru buradan alıyorsun
                     }
                 }
             ];
 
-            const result = await Product.aggregate(agg);
+            const result = await Service.aggregate(agg);
             //return await Product.aggregate(agg);
             return result;
         } catch (error) {
             throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
         }
     }
-   
+
 
 }
 

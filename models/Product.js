@@ -73,6 +73,11 @@ class Product {
         return this.updatedAt;
     }
 
+    setProductId(id) {
+        console.log("setProductId",id)
+        this._id = id;
+    }
+
     // 🔹 Setter Metodları
     setCompanyId(companyid) {
         this.companyid = companyid;

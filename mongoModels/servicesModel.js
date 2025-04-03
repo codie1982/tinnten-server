@@ -7,7 +7,7 @@ const servicesSchema = new mongoose.Schema({
   features: [{ type: String }],                             // Hizmet özellikleri (örn: SEO Desteği, Responsive Design)
   duration: { type: String, default: "Belirtilmemiş" },     // Tahmini süre (örn: 2 hafta, 3 gün)
   price: { type: mongoose.Schema.Types.ObjectId, ref: "price", required: false }, // Fiyat bilgisi
-  gallery: [{ type: mongoose.Schema.Types.ObjectId, ref: "image" }],  // Örnek projeler/görseller
+  gallery: [{ type: mongoose.Schema.Types.ObjectId, ref: "gallery" }],  // Örnek projeler/görseller
 
   // 📍 Hizmetin Lokasyon Durumu
   isLocationBased: { type: Boolean, default: false },       // Hizmet belirli bir bölgeye mi bağlı?

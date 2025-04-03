@@ -4,9 +4,9 @@ const Services = require("../models/Services")
 const Company = require("../models/Company")
 class Recommendation {
     constructor(data) {
-        this._id = data._id;
         this.type = data.type;
         this.score = data.score || 0;
+        this.groupname = data.groupname || ""
         this.explanation = data.explanation || "";
         this.products = (data.products || []).map((item) => new Product(item));
         this.services = (data.services || []).map((item) => new Services(item));
@@ -22,6 +22,9 @@ class Recommendation {
 
     getType() {
         return this.type;
+    }
+    getGroupName() {
+        return this.groupname;
     }
 
     getScore() {
@@ -59,6 +62,10 @@ class Recommendation {
 
     setScore(score) {
         this.score = score;
+    }
+
+    setScore(name) {
+        this.groupname = name;
     }
 
     setExplanation(explanation) {
