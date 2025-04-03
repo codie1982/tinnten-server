@@ -81,7 +81,12 @@ class ConversationMongoDB extends BaseDB {
                 ])
             return result; // Eğer sonuç varsa ilkini döndür
         } catch (error) {
-            throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+            throw new Error(
+                "MongoDB: Konuşma getirilirken hata oluştu - " +
+                error.message +
+                " | Query: " +
+                JSON.stringify(query)
+              );
         }
     }
     async readMany(query) {
@@ -89,7 +94,12 @@ class ConversationMongoDB extends BaseDB {
             const result = await Conversation.find(query)
             return result; // Eğer sonuç varsa ilkini döndür
         } catch (error) {
-            throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
+            throw new Error(
+                "MongoDB: Konuşma getirilirken hata oluştu - " +
+                error.message +
+                " | Query: " +
+                JSON.stringify(query)
+              );
         }
     }
     async readPaginated(query, page, limit) {
