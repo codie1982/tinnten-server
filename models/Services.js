@@ -76,6 +76,9 @@ class Service {
         return this.updatedAt;
     }
 
+    setServicesId(id) {
+        this._id = id;
+    }
     // 🔹 Setter Metodları
     setCompanyId(companyid) {
         this.companyid = companyid;

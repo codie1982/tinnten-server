@@ -6,11 +6,11 @@ const summarizeContext = async (conversation) => {
     **Son Mesajlar:**
     ${conversation.messages.map(m => `- ${m.content}`).join("\n")}
     
-     **Ürinler için sorulan sorular ve cevaplaro:**
+     **Ürünler için sorulan sorular ve cevapları:**
     ${conversation.messages
             ?.map((item) => {
                 return item?.productionQuestions?.map((quest) =>
-                    `Soru: ${quest?.questionText || "Bilinmiyor"}\nCevap: ${quest?.answer || "Bilinmiyor"}\n`
+                    `Soru: ${quest?.questionText || "Bilinmiyor"}\n}\n`
                 ).join('') || '';  // Eğer boşsa, en azından boş string dön
             }).join('')}
 

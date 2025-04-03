@@ -87,6 +87,9 @@ class MessageDB extends BaseDB {
                     $skip: (page - 1) * limit
                 },
                 {
+                    $sort: { _id: -1 }
+                },
+                {
                     $limit: limit
                 }
             ]);

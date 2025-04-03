@@ -7,6 +7,7 @@ const recommendationSchema = new mongoose.Schema({
     }, // Öneri türü
 
     score: { type: Number, default: 0 },   // Öneri puanı (vektör yakınlığı veya güven skoru)
+    groupname: { type: String, default: "" }, // ürün veya servis grubunun ismi
     explanation: { type: String, default: "" }, // Neden önerildiği (örneğin: "Önceki tercihlerine göre önerildi.")
 
     products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],  // Ürün önerisi varsa
