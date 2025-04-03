@@ -92,12 +92,9 @@ app.get('/sitemap.xml', async (req, res) => {
         priority: 0.7
       });
     }); */
-
     sitemap.end();
-
     const xml = await streamToPromise(pipeline);
     res.send(xml);
-
   } catch (err) {
     console.error('Sitemap oluşturulurken hata:', err);
     res.status(500).end();
@@ -113,6 +110,7 @@ app.get('/images/cover', (req, res) => {
     }
   });
 });
+
 
 app.post('/addproducts', async (req, res) => {
   try {
@@ -265,12 +263,10 @@ app.post('/addproducts', async (req, res) => {
 
 app.post("/test-mail", async (req, res) => {
   try {
-
     const send = await sendEmail("standart", "granitjeofizik@gmail.com", "Konu", { data: "mesaj" })
       .catch(() => {
         res.status(400).json({ message: "test mail gönderilmedi." });
       });
-
     if (send) {
       res.status(200).json({ message: "test mail gönderildi" });
     }

@@ -2,8 +2,8 @@ const Cost = require("../../lib/cost")
 const orientationContext = require("../Context/orientationContext")
 const BaseAgent = require("./BaseAgent")
 
-class LLMAgent extends BaseAgent{
-    async getOrientationContext(user, conversation, human_message) {
+class LLMAgent extends BaseAgent {
+    async getOrientationContext(user,userid, conversation, human_message) {
         this.context = await orientationContext(user, conversation, human_message)
         console.log("[LLMAgent] Orientation context received:", this.context)
         console.log("[LLMAgent] Sending chat completion request...")
@@ -17,12 +17,12 @@ class LLMAgent extends BaseAgent{
         let response = completion.choices[0].message.content
         console.log("[LLMAgent] Raw response:", response)
         const parseResponse = JSON.parse(this.cleanJSON(response));
-        
+
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
-            userid: user._id,
-            conversationid: conversation._id,
+            userid: userid,
+            conversationid: conversation.conversationid,
             model: completion.model,
             content: parseResponse,
             finish_reason: completion.choices[0].finish_reason,

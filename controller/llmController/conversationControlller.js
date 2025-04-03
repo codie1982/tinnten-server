@@ -66,6 +66,7 @@ const conversation = asyncHandler(async (req, res) => {
   const dbCon = new ConversationDB();
   let messageIds = [];
 
+  const io = getIO();
   try {
     let conversation = null;
 
@@ -97,7 +98,18 @@ const conversation = asyncHandler(async (req, res) => {
       }
 
     console.log("[Conversation] Retrieving LLM orientation context...");
-    const context = await LLM.getOrientationContext(userkey, conversation, human_message);
+    console.log("userid:", userid);
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: `Kullanıcı isteği analiz ediliyor...`,
+      timestamp: Date.now(),
+    });
+    const context = await LLM.getOrientationContext(userkey, userid, conversation, human_message);
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: `${context.content.userBehaviorModel}`,
+      timestamp: Date.now(),
+    });
     console.log("context", context);
     console.log("[Conversation] Received context with finish_reason:", context.finish_reason);
     if (!context || context.finish_reason !== "stop") {
@@ -111,13 +123,21 @@ const conversation = asyncHandler(async (req, res) => {
     let messageGroupid = uuidv4();
     console.log("[Conversation] Generated messageGroupid:", messageGroupid);
 
-    const humanMessage = MessageFactory.createMessage("human_message", messageGroupid, human_message);
+
+    const humanMessage = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
     let nHumanMessage = await humanMessage.saveToDatabase();
     console.log("[Conversation] Human message saved with id:", nHumanMessage._id);
 
     const systemMessage = MessageFactory.createMessage("system_message", messageGroupid, null, context);
     let nSystemMessage = await systemMessage.processAndSave();
     console.log("[Conversation] System message saved with id:", nSystemMessage._id);
+   
+
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: `sistem cevabı hazırlandı...`,
+      timestamp: Date.now(),
+    });
 
     messageIds.push(nHumanMessage._id, nSystemMessage._id);
     // **Mesajları Konuşmaya Ekle**
@@ -144,10 +164,19 @@ const conversation = asyncHandler(async (req, res) => {
       memoryManager.loadMemory(tempConversation);
       console.log("[Conversation] Memory loaded into MemoryManager");
 
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `konuşma özeti hazırlanıyor...`,
+        timestamp: Date.now(),
+      });
       // Get summarized memory for the conversation
       let conversationSummary = await memoryManager.getSummarizedForMemory();
       console.log("[Conversation] Conversation summary generated:", conversationSummary);
-
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `konuşma özeti hazırlandı...`,
+        timestamp: Date.now(),
+      });
       // Update the conversation with the summarized memory
       await dbCon.update(
         { userid, conversationid },
@@ -156,6 +185,11 @@ const conversation = asyncHandler(async (req, res) => {
       isMemorySaved = true;
       console.log("[Conversation] Memory saved for conversation:", conversationid);
     }
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: `konuşma güncellendi...`,
+      timestamp: Date.now(),
+    });
 
     // **Güncellenmiş Konuşmayı Oku ve Yanıt Gönder**
     const newConversation = await dbCon.read({ userid, conversationid });

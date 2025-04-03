@@ -80,9 +80,9 @@ class MessageDB extends BaseDB {
                         }
                     }
                 },
-               /*  {
-                    $match: {userid: userid}
-                }, */
+                {
+                    $match: { userid: userid }
+                },
                 {
                     $skip: (page - 1) * limit
                 },

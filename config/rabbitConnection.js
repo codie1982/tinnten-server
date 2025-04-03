@@ -9,7 +9,6 @@ let config = {
   password: "password",
   vhost: "/",
   authMechanism: ["PLATIN", "AMQPLAIN", "EXTERNAL"]
-
 }
 async function getRabbitConnection() {
   if (connection) return connection;
