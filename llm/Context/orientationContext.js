@@ -67,25 +67,27 @@ const orientationContext = (user, conversation, human_message) => {
                         Soru-Cevap Geçmişi: {conversation_questions}  
                         Önceki Konuşmalar: {before_message}  
 
-                    ### 3️⃣ Cevap Formatı:
-                    Her zaman şu JSON formatında cevap ver:
+                        Kullanıcı isteği :{human_message}
 
-                    ***json
-                    {
-                        "system_message": "",
-                        "request_type": "product", 
-                        "uncertainty_level": "low", 
-                        "multiple_request": false,
-                        "products": [],
-                        "services": [],
-                        "question": [],
-                        "general_categories": [],
-                        "context": "",
-                        "action": "recommendation", //Yapılması gereken eylem -> Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ;
-                        "userBehaviorModel": "",
-                        "includeInContext": false,
-                        "title": ""
-                    }`
+                        ### 3️⃣ Cevap Formatı:
+                        Her zaman şu JSON formatında cevap ver:
+
+                        ***json
+                        {
+                            "system_message": "",
+                            "request_type": "product", 
+                            "uncertainty_level": "low", 
+                            "multiple_request": false,
+                            "products": [],
+                            "services": [],
+                            "question": [],
+                            "general_categories": [],
+                            "context": "",
+                            "action": "recommendation", //Yapılması gereken eylem -> Kullanıcıdan bilgi alınması gerekiyorsa "qestion" ;
+                            "userBehaviorModel": "",
+                            "includeInContext": false,
+                            "title": ""
+                        }`
 
         const formattedText = _conversation.messages
             ?.map((item) => {
@@ -100,6 +102,7 @@ const orientationContext = (user, conversation, human_message) => {
             .replace("{userContext}", _conversation.context)
             .replace("{userBehaviorModel} ", _conversation.userBehaviorModel)
             .replace("{conversation_summary}", _conversation.memory)
+            .replace("{human_message}", human_message)
             //.replace("{conversation_questions}", _conversation ? _conversation.messages.map(q => `Soru : ${q.questionText}`).join('') : "")
             .replace("{conversation_questions}", _conversation ?
                 _conversation.messages.map((item) => {

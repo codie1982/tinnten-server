@@ -4,6 +4,7 @@ const BaseDB = require("./BaseDB");
 class RecommendationDB extends BaseDB {
     async create(data) {
         try {
+            console.log("[RecommendationDB] Data to be saved:", data);
             const recommendation = new Recommendation(data);
             return await recommendation.save();
         } catch (error) {

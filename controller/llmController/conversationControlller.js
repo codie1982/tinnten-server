@@ -3,7 +3,7 @@ const asyncHandler = require("express-async-handler");
 const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
 
-const LLMAgent = require("../../llm/agents/llmAgent.js")
+const IntentAgent = require("../../llm/agents/intentAgent.js")
 
 //helper
 const ApiResponse = require("../../helpers/response.js")
@@ -11,63 +11,54 @@ const User = require("../../mongoModels/userModel.js")
 const UserProfil = require("../../mongoModels/userProfilModel.js")
 const Conversation = require("../../models/Conversation")
 const ConversationDB = require("../../db/ConversationMongoDB.js");
-const MessageDB = require("../../db/messageDB.js");
+const MessageDB = require("../../db/MessageDB.js");
 const MODEL1 = "gpt-3.5-turbo"
 const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
-
+const ConversationService = require("../../lib/ConversationService.js");
 const MemoryManager = require("../../llm/memory/MemoryManager.js");
 const { MessageFactory } = require("../../lib/message/MessageProcessor.js");
 const QuestionDB = require("../../db/QuestionDB.js");
-const { parse } = require("dotenv");
 const CONSTANT = { active: "active" }
 
 const { getIO } = require('../../lib/Socket.js');
 
 //privete public
 const conversation = asyncHandler(async (req, res) => {
-  console.log("[Conversation] Request received with body:", req.body)
-  let { conversationid, human_message, answers } = req.body;
-  let conversationCreated = false;
-  let LLM;
 
   try {
-    LLM = new LLMAgent();
-    await LLM.start(MODEL2, 0.2);
-    console.log("LLM started successfully");
-  } catch (error) {
-    console.error("LLM connection error:", error);
-    return res.status(500).json(ApiResponse.error(500, "LLM hatası", {
-      message: "LLM bağlantısı kurulamıyor."
-    }));
-  }
+    console.log("[Conversation] Request received with body:", req.body)
+    let { conversationid, human_message, productid, messageid } = req.body;
 
-  // Kullanıcı yetkilendirme
-  const access_token = req.kauth?.grant?.access_token?.token;
-  if (!access_token) {
-    console.warn("Access token not found or invalid");
-    return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
-      message: "Token bulunamadı veya geçersiz."
-    }));
-  }
 
-  const userkey = await Keycloak.getUserInfo(access_token);
-  const user = await User.findOne({ keyid: userkey.sub });
-  console.log("[Conversation] User validated:", user?._id)
+    // Kullanıcı yetkilendirme
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      console.warn("Access token not found or invalid");
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
 
-  if (!user) {
-    console.warn("User not found for keyid:", userkey.sub);
-    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
-      message: "Geçersiz kullanıcı."
-    }));
-  }
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    console.log("[Conversation] User validated:", user?._id)
 
-  const userid = user._id;
-  const dbCon = new ConversationDB();
-  let messageIds = [];
+    if (!user) {
+      console.warn("User not found for keyid:", userkey.sub);
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
+        message: "Geçersiz kullanıcı."
+      }));
+    }
 
-  const io = getIO();
-  try {
+    //DB çalıştır.
+    const dbCon = new ConversationDB();
+    let messageIds = [];
+
+    //Socket io Çalıştır
+    const io = getIO();
+
+    const userid = user._id;
     let conversation = null;
 
     // Eğer `conversationid` varsa eski konuşmayı getir
@@ -81,6 +72,7 @@ const conversation = asyncHandler(async (req, res) => {
       }
       conversation = new Conversation(readConversation);
       console.log("[Conversation] Existing conversation found:", conversationid);
+
     } else {
       console.warn("[Conversation] conversationid is missing");
       return res.status(400).json(ApiResponse.error(400, "conversationid eksik", {
@@ -98,67 +90,97 @@ const conversation = asyncHandler(async (req, res) => {
       }
 
     console.log("[Conversation] Retrieving LLM orientation context...");
-    console.log("userid:", userid);
+
     io.to(userid.toString()).emit('agent-feedback', {
       agentId: 'agent-1',
       status: `Kullanıcı isteği analiz ediliyor...`,
       timestamp: Date.now(),
     });
-    const context = await LLM.getOrientationContext(userkey, userid, conversation, human_message);
+    let intentAgent;
+    intentAgent = new IntentAgent()
+    await intentAgent.start(MODEL1, 0.2);
+    console.log("INTENTAGENT started successfully");
 
-    console.log("[Conversation Recommendation] Recommendation Products...");
-    console.log("context.content.products :", context.content.products);
-    console.log("[Conversation Recommendation] Recommendation Services...");
-    console.log("context.content.services :", context.content.services);
-    console.log("[Conversation Recommendation] Recommendation Question...");
-    console.log("context.content.services :", context.content.question);
+    const userIntent = await intentAgent.getIntent(userkey, human_message)
+    console.log("[intentAgent] User intent received:", userIntent);
+    let context;
+    if (userIntent.content.intent == "recommendation") {
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `Kullanıcıya bir öneri yapılacak...`,
+        timestamp: Date.now(),
+      });
 
-    if (context.content?.title != "") {
-      const conversationTitle = context.content.title
-      console.log("userid, conversationid", userid, conversationid)
-      await dbCon.update(
-        { userid, conversationid },
-        { title: conversationTitle } // Otomatik olarak `$push` kullanacak
-      );
+
+
+
+      let conversationServices = new ConversationService(userIntent.content.intent)
+
+      let context = await conversationServices.createContext()
+
+      console.log("[Conversation Recommendation] Recommendation Products...");
+      console.log("context.content.products :", conversationContext.content.products);
+      console.log("[Conversation Recommendation] Recommendation Services...");
+      console.log("context.content.services :", conversationContext.content.services);
+      console.log("[Conversation Recommendation] Recommendation Question...");
+      console.log("context.content.services :", conversationContext.content.question);
+
+
 
       io.to(userid.toString()).emit('agent-feedback', {
         agentId: 'agent-1',
-        status: `Konuşma içeriği ${conversationTitle}`,
+        status: `${context.content.userBehaviorModel}`,
         timestamp: Date.now(),
       });
-      io.to(userid.toString()).emit('agent-update-title', {
-        title: `${conversationTitle}`,
-        conversationid: conversationid,
+
+      console.log("context", context);
+      console.log("[Conversation] Received context with finish_reason:", context.finish_reason);
+      if (!context || context.finish_reason !== "stop") {
+        console.error("[Conversation] RecommendationAgent process incomplete");
+        return res.status(500).json(ApiResponse.error(500, "Konuşma iptal edildi", {
+          message: "RecommendationAgent işlemi tamamlanamadı."
+        }));
+      }
+
+    } else if (userIntent.content.intent == "production_info") {
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `Kullanıcı bir ürün ile ilgili bilgi istiyor...`,
         timestamp: Date.now(),
       });
-    }
 
 
-    io.to(userid.toString()).emit('agent-feedback', {
-      agentId: 'agent-1',
-      status: `${context.content.userBehaviorModel}`,
-      timestamp: Date.now(),
-    });
-    console.log("context", context);
-    console.log("[Conversation] Received context with finish_reason:", context.finish_reason);
-    if (!context || context.finish_reason !== "stop") {
-      console.error("[Conversation] LLM process incomplete");
-      return res.status(500).json(ApiResponse.error(500, "Konuşma iptal edildi", {
-        message: "LLM işlemi tamamlanamadı."
-      }));
+
+    } else if (userIntent.content.intent == "services_info") {
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `Kullanıcı bir hizmet ile ilgili bilgi istiyor...`,
+        timestamp: Date.now(),
+      });
+
+
+
+    } else if (userIntent.content.intent == "chat") {
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: `Kullanıcı ile sohbet edilecek...`,
+        timestamp: Date.now(),
+      });
+    } else {
+      //Recommendation üretilecek
+
     }
 
     // **Kullanıcının mesajını oluştur**
     let messageGroupid = uuidv4();
     console.log("[Conversation] Generated messageGroupid:", messageGroupid);
 
-
-    const humanMessage = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
-    let nHumanMessage = await humanMessage.saveToDatabase();
+    const humanMessage = MessageFactory.createMessage("human_message", messageGroupid, human_message, _context);
+    let nHumanMessage = await humanMessage.saveHumanMessage();
     console.log("[Conversation] Human message saved with id:", nHumanMessage._id);
 
-    const systemMessage = MessageFactory.createMessage("system_message", messageGroupid, null, context);
-    let nSystemMessage = await systemMessage.processAndSave();
+    const systemMessage = MessageFactory.createMessage("system_message", messageGroupid, null, _context);
+    let nSystemMessage = await systemMessage.saveSystemMessage();
     console.log("[Conversation] System message saved with id:", nSystemMessage._id);
 
 
@@ -175,7 +197,6 @@ const conversation = asyncHandler(async (req, res) => {
         { userid, conversationid },
         { messages: messageIds } // Otomatik olarak `$push` kullanacak
       );
-
       console.log("[Conversation] Messages added to conversation:");
     }
 
@@ -372,7 +393,7 @@ const detail = asyncHandler(async (req, res) => {
     const conDb = new ConversationDB()
     // 🗂 **Konuşmayı Veri Tabanından Getir**
     const _conversation = await conDb.read({ userid, conversationid })
-
+    console.log("conversation", _conversation)
     // 🚨 **Hatalı veya Geçersiz Konuşma Kontrolü**
     if (!_conversation) {
       return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));

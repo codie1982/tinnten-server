@@ -57,7 +57,7 @@ class ProductsDB extends BaseDB {
                         index: 'tinnten_product_vector_index',
                         path: 'vector',
                         queryVector: vector,
-                        numCandidates: 1000,
+                        numCandidates: limit * 2, // Daha fazla aday alıyoruz
                         limit: limit,
                         metric: 'cosine'
                     }
@@ -65,6 +65,7 @@ class ProductsDB extends BaseDB {
                 {
                     $project: {
                         _id: 1,
+                        title: 1,
                         score: { $meta: "vectorSearchScore" } // ✨ Skoru buradan alıyorsun
                     }
                 }
@@ -74,6 +75,17 @@ class ProductsDB extends BaseDB {
             return result;
         } catch (error) {
             throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
+        }
+    }
+
+    async searchFromAgent(agg) {
+        try {
+            //console.log("searchFromAgent", agg)
+            //console.log("searchFromAgent", JSON.stringify(agg))
+            const result = await Product.aggregate(agg);
+            return result;
+        } catch (error) {
+            throw new Error("MongoDB: Ürün Aramalarında hata oluştu - " + error.message);
         }
     }
 }

@@ -18,7 +18,7 @@ const summarizeContext = async (conversation) => {
     ${conversation.messages
             ?.map((item) => {
                 return item?.recommendations?.map((recom) => {
-                    return recom.products.map((product) => `Ürün ismi: ${product?.title}\n`)
+                    return recom.products.main.map((product) => `Ürün ismi: ${product?.title}\n`)
                 }
 
                 ).join('') || '';  // Eğer boşsa, en azından boş string dön
@@ -28,7 +28,7 @@ const summarizeContext = async (conversation) => {
     ${conversation.messages
             ?.map((item) => {
                 return item?.recommendations?.map((recom) => {
-                    return recom.services.map((service) => `Ürün ismi: ${service?.name}\n`)
+                    return recom.services.main.map((service) => `Ürün ismi: ${service?.name}\n`)
                 }
 
                 ).join('') || '';  // Eğer boşsa, en azından boş string dön

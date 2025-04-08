@@ -1,33 +1,34 @@
 const Cost = require("../../lib/cost")
-const responseContext = require("../Context/responseContext")
+const intentContext = require("../Context/intentContext")
 const BaseAgent = require("./BaseAgent")
 
-class ResponseAgent extends BaseAgent {
-    async getResponseContext(search_context, mainProductList,auxiliaryProductList, serviceList) {
-        
-        this.system_message = await responseContext(search_context, mainProductList,auxiliaryProductList, serviceList)
-        console.log("[ResponseAgent] Response System Message received:", this.system_message)
-        console.log("[ResponseAgent] Sending chat completion request...")
+class IntentAgent extends BaseAgent {
+    async getIntent(user, human_message) {
+        this.system_message = await intentContext(user,human_message)
+        console.log("[IntentAgent] Intent context received:", this.system_message)
+        console.log("[IntentAgent] Sending chat completion request...")
         const completion = await this.model.chat.completions.create({
             model: this.model_name,
             messages: [
                 {
                     role: 'system',
-                    content: this.system_message
+                    content: "Sen bir akıllı assistansın"
                 },
                 {
                     role: 'user',
-                    content: ""
+                    content: this.system_message
                 }
             ],
             temperature: this.temperature
         });
 
 
-        console.log("[ResponseAgent] Completion response received.")
+        console.log("[IntentAgent] Completion response received.")
+        console.log("[IntentAgent] Completion.", completion.choices[0].message)
+
         let response = completion.choices[0].message.content
-        console.log("[ResponseAgent] Raw response:", response)
-        const parseResponse = this.cleanMarkdown(response);
+        console.log("[IntentAgent] Raw response:", response, typeof (response))
+        const parseResponse = this.cleanJSON(response);
 
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
@@ -48,7 +49,6 @@ class ResponseAgent extends BaseAgent {
             }
         }
     }
-
 }
 
-module.exports = ResponseAgent
+module.exports = IntentAgent

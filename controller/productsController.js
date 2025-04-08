@@ -3,8 +3,12 @@ const { v4: uuidv4 } = require('uuid');
 const Product = require("../mongoModels/productsModel")
 const Price = require("../mongoModels/priceModel")
 const Variant = require("../mongoModels/variantsModel")
+const Gallery = require("../mongoModels/galleryModel.js")
 const Image = require("../mongoModels/imagesModel")
+const User = require("../mongoModels/userModel.js")
 const ApiResponse = require("../helpers/response")
+const Keycloak = require("../lib/Keycloak.js");
+
 
 
 const getProducts = asyncHandler(async (req, res) => {
@@ -26,10 +30,68 @@ const getProducts = asyncHandler(async (req, res) => {
   }
 });
 
+
+const getProductDetail = asyncHandler(async (req, res) => {
+  try {
+    const { id: productid } = req.params;
+
+    if (productid == null) {
+      return res.status(400).json(ApiResponse.error(400, 'Ürün ID boş olamaz.', {}));
+    }
+    // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
+    const access_token = req.kauth.grant.access_token.token;
+
+    // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
+    const userInfo = await Keycloak.getUserInfo(access_token);
+
+    const userkeyid = userInfo.sub;
+    let user = await User.findOne({ keyid: userkeyid });
+    if (!user) {
+      user = await new User({ keyid: userkeyid }).save();
+    }
+    const userid = user._id;
+    if (!userid) {
+      return res.status(400).json(ApiResponse.error(400, 'Kullanıcı ID boş olamaz.', {}));
+    }
+
+    const product = await Product.findOne(
+      { _id: productid },
+      { vector: 0 } // örnek dışlanacak alanlar
+    ).lean();
+
+    if (product.basePrice) {
+      product.basePrice = await Price.findById(product.basePrice).lean();
+    }
+
+    if (product.gallery) {
+      const gallery = await Gallery.findById(product.gallery, { description: 0 }).lean();
+      if (gallery?.images?.length > 0) {
+        gallery.images = await Image.find({
+          _id: { $in: gallery.images }
+        }).lean();
+      }
+      product.gallery = gallery;
+    }
+    if (product.variants) {
+      product.variants = await Variant.find({
+        _id: { $in: product.variants }
+      }).lean();
+    }
+    if (product != null) {
+      return res.status(200).json(ApiResponse.success(200, 'Uygun paket listesi.', product));
+    } else {
+      return res.status(200).json(ApiResponse.error(404, 'herhangi bir paket tanımlı değil.', {}));
+    }
+  } catch (error) {
+    console.error('Genel Hata:', error);
+    return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
+  }
+});
+
 const addProduct = asyncHandler(async (req, res) => {
   try {
-    const { 
-      companyid, name, description, categories, basePrice, variants, gallery, attributes 
+    const {
+      companyid, name, description, categories, basePrice, variants, gallery, attributes
     } = req.body;
 
     // **Base Price İşlemleri (Fiyatları Kaydet)**
@@ -97,6 +159,6 @@ const addProduct = asyncHandler(async (req, res) => {
 });
 
 module.exports = {
-  getProducts,addProduct
+  getProducts, addProduct, getProductDetail
 };
 

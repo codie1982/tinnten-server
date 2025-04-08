@@ -73,19 +73,25 @@ class ConversationMongoDB extends BaseDB {
 
                     for (let rec of recs) {
                         // products
-                        if (rec.products?.length > 0) {
-                            const products = await Product.find({
-                                _id: { $in: rec.products }
-                            }).lean();
+                        if (rec.products?.main?.length > 0 || rec.products?.auxiliary?.length > 0) {
+                            const allProductIds = [
+                                ...(rec.products.main || []),
+                                ...(rec.products.auxiliary || [])
+                            ];
 
-                            // basePrice ve gallery populate
-                            for (let product of products) {
+                            const allProducts = await Product.find(
+                                { _id: { $in: allProductIds } },
+                                { vector: 0, description: 0, meta: 0 }
+                            ).lean();
+
+                            const productMap = new Map();
+                            for (let product of allProducts) {
                                 if (product.basePrice) {
                                     product.basePrice = await Price.findById(product.basePrice).lean();
                                 }
 
                                 if (product.gallery) {
-                                    const gallery = await Gallery.findById(product.gallery).lean();
+                                    const gallery = await Gallery.findById(product.gallery, { description: 0 }).lean();
                                     if (gallery?.images?.length > 0) {
                                         gallery.images = await Image.find({
                                             _id: { $in: gallery.images }
@@ -93,16 +99,32 @@ class ConversationMongoDB extends BaseDB {
                                     }
                                     product.gallery = gallery;
                                 }
+
+                                productMap.set(product._id.toString(), product);
                             }
 
-                            rec.products = products;
+                            rec.products.main = (rec.products.main || []).map(id => productMap.get(id.toString())).filter(Boolean);
+                            rec.products.auxiliary = (rec.products.auxiliary || []).map(id => productMap.get(id.toString())).filter(Boolean);
                         }
 
                         // services
-                        if (rec.services?.length > 0) {
-                            rec.services = await Service.find({
-                                _id: { $in: rec.services }
+                        if (rec.services?.main?.length > 0 || rec.services?.auxiliary?.length > 0) {
+                            const allServiceIds = [
+                                ...(rec.services.main || []),
+                                ...(rec.services.auxiliary || [])
+                            ];
+
+                            const allServices = await Service.find({
+                                _id: { $in: allServiceIds }
                             }).lean();
+
+                            const serviceMap = new Map();
+                            for (let service of allServices) {
+                                serviceMap.set(service._id.toString(), service);
+                            }
+
+                            rec.services.main = (rec.services.main || []).map(id => serviceMap.get(id.toString())).filter(Boolean);
+                            rec.services.auxiliary = (rec.services.auxiliary || []).map(id => serviceMap.get(id.toString())).filter(Boolean);
                         }
 
                         // companies
@@ -119,58 +141,8 @@ class ConversationMongoDB extends BaseDB {
 
             // 4. Final sonucu conversation ile birleştir
             conversation.messages = messages;
-
             return conversation;
-            /*   const result = await Conversation.findOne(query)
-                  .populate([
-                      {
-                          path: "messages", module: "message",
-                          populate: [
-                              {
-                                  path: "productionQuestions", // Önce `productionQuestions` içindeki ID'leri doldur
-                                  model: "question"
-                              },
-                              {
-                                  path: "servicesQuestions", //
-                                  model: "question"
-                              },
-                              {
-                                  path: "recommendations", // 
-                                  model: "recommendation",
-                                  populate: [
-                                      {
-                                          path: "products", // 
-                                          model: "products",
-                                          populate: [
-                                              {
-                                                  path: "basePrice", // 
-                                                  model: "price",
-                                              },
-                                              {
-                                                  path: "gallery", // 
-                                                  model: "gallery",
-                                                  populate: {
-                                                      path: "images", // 
-                                                      model: "images",
-                                                  }
-                                              }
-  
-                                          ]
-                                      },
-                                      {
-                                          path: "services", // 
-                                          model: "services"
-                                      },
-                                      {
-                                          path: "companyies", // 
-                                          model: "companyprofile"
-                                      },
-                                  ]
-                              },
-                          ]
-                      },
-                  ]) */
-            //return result; // Eğer sonuç varsa ilkini döndür
+
         } catch (error) {
             throw new Error(
                 "MongoDB: Konuşma getirilirken hata oluştu - " +
@@ -180,6 +152,8 @@ class ConversationMongoDB extends BaseDB {
             );
         }
     }
+
+
     async readMany(query) {
         try {
             const result = await Conversation.find(query)

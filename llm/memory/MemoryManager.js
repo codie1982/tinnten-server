@@ -1,4 +1,4 @@
-const SummarizeAgent = require("../agents/memoryAgent");
+const SummarizeAgent = require("../agents/summarizeAgent");
 
 class MemoryManager {
 
