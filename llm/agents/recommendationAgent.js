@@ -3,8 +3,8 @@ const orientationContext = require("../Context/orientationContext")
 const BaseAgent = require("./BaseAgent")
 
 class RecommendationAgent extends BaseAgent {
-    async getOrientationContext(user, userid, conversation, human_message) {
-        this.system_message = await orientationContext(user, conversation, human_message)
+    async getOrientationContext(user, userid, conversationid, human_message) {
+        this.system_message = await orientationContext(user, conversationid, human_message)
         console.log("[LLMAgent] Orientation context received:", this.system_message)
         console.log("[LLMAgent] Sending chat completion request...")
         const completion = await this.model.chat.completions.create({
@@ -34,7 +34,7 @@ class RecommendationAgent extends BaseAgent {
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
             userid: userid,
-            conversationid: conversation.conversationid,
+            conversationid: conversationid,
             model: completion.model,
             content: parseResponse,
             finish_reason: completion.choices[0].finish_reason,
