@@ -1,4 +1,4 @@
-const Conversation = require("../../models/Conversation")
+const Conversation = require("../../models/Conversation.js")
 const ConversationDB = require("../../db/ConversationMongoDB.js")
 const orientationContext = (user, conversation, human_message) => {
     console.log("[orientationContext] Called with user:", user, "conversation", conversation)

@@ -11,9 +11,11 @@ const cookieParser = require('cookie-parser');
 
 const { errorHandler } = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
-
+const Keycloak = require("./lib/Keycloak.js");
 const { sendEmail } = require("./services/mailServices")
-const { initSocket } = require('./lib/Socket');
+const { initSocket } = require('./lib/WSSocket');
+const socketManager = require("./lib/SocketManager.js");
+
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
 const { createGzip } = require('zlib');
@@ -21,6 +23,10 @@ const { createGzip } = require('zlib');
 const fs = require('fs');
 
 const csv = require('csv-parser');
+
+const ResponseAgent = require("./llm/agents/ResponseAgent");
+const IntentAgent = require("./llm/agents/intentAgent.js");
+const User = require("./mongoModels/userModel.js")
 
 
 //const App = require('../frontend/src/index.js'); // React uygulamanızı bu şekilde import edin
@@ -30,6 +36,96 @@ const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
 const server = http.createServer(app);
+
+
+const wss = initSocket(server);
+if (!wss) {
+  console.error("[server.js] WebSocket server başlatılamadı!");
+  process.exit(1);
+}
+
+wss.on("connection", async (ws, req) => {
+  console.log("[server.js] Yeni WebSocket bağlantısı:");
+  const access_token = new URLSearchParams(req.url.split("?")[1]).get("token");
+
+  if (!access_token) {
+    console.error("[server.js] Token bulunamadı");
+    ws.send(JSON.stringify({ event: "error", data: { message: "Token eksik" } }));
+    ws.close(1008, "Token eksik");
+    return;
+  }
+
+  try {
+    const userkey = await Keycloak.getUserInfo(access_token);
+    console.log("[server.js] Keycloak doğrulama başarılı:", userkey.sub);
+    const user = await User.findOne({ keyid: userkey.sub });
+
+    if (!user) {
+      console.error("[server.js] Kullanıcı bulunamadı");
+      ws.send(JSON.stringify({ event: "error", data: { message: "Kullanıcı bulunamadı" } }));
+      ws.close(1008, "Kullanıcı bulunamadı");
+      return;
+    }
+
+    const userid = user._id.toString();
+    console.log(`[server.js] Kullanıcı bağlandı: ${userid}`);
+    ws.userid = userid;
+    ws.isAuthenticated = false;
+    socketManager.userSockets.set(userid, { socket: ws, userid });
+    console.log("[server.js] userSockets'a eklendi:", userid, "Map:", Array.from(socketManager.userSockets.keys()).length);
+    console.log("[server.js] Sistemte : ", " ", socketManager.userSockets.size, " ", "Kişi var");
+
+    ws.on("message", (message) => {
+      try {
+        const { event, data: payload } = JSON.parse(message);
+        console.log("[server.js] Mesaj alındı:", { event, payload, userid });
+
+        if (event === "identify") {
+          const receivedUserid = payload.userid
+          if (receivedUserid && receivedUserid === ws.userid) {
+            ws.isAuthenticated = true;
+            socketManager.userSockets.set(userid, { socket: ws, userid }); // Güncelle
+            console.log(`[server.js] Kullanıcı doğrulandı: ${ws.userid}, isAuthenticated: ${ws.isAuthenticated}`);
+            ws.send(JSON.stringify({ event: "identify_success", data: { message: "Doğrulama başarılı" } }));
+          } else {
+            console.error("[server.js] Geçersiz userid:", { received: payload.userid, expected: ws.userid });
+            ws.send(JSON.stringify({ event: "error", data: { message: "Geçersiz userid" } }));
+            ws.close(1008, "Geçersiz userid");
+          }
+        } else if (event === "ping") {
+          ws.send(JSON.stringify({ event: "pong" }));
+          console.log("[server.js] Pong gönderildi:", userid);
+        } else {
+          console.warn("[server.js] Bilinmeyen mesaj:", event, "from:", userid);
+        }
+      } catch (error) {
+        console.error("[server.js] Mesaj işleme hatası:", error.message, "from:", userid);
+        ws.send(JSON.stringify({ event: "error", data: { message: "Mesaj işlenemedi" } }));
+      }
+    });
+
+    ws.on("close", (code) => {
+      console.log(`[server.js] Kullanıcı ayrıldı: ${userid}, Kod: ${code}`);
+      socketManager.userSockets.delete(userid);
+      console.log("[server.js] userSockets'tan silindi:", userid, "Map:", Array.from(socketManager.userSockets.keys()));
+    });
+
+    ws.on("error", (error) => {
+      console.error("[server.js] WebSocket hatası:", error.message, "from:", userid);
+      socketManager.userSockets.delete(userid);
+      console.log("[server.js] userSockets'tan silindi (hata):", userid, "Map:", Array.from(socketManager.userSockets.keys()));
+    });
+  } catch (error) {
+    console.error("[server.js] Token doğrulama hatası:", error.message);
+    ws.send(JSON.stringify({ event: "error", data: { message: `Geçersiz token: ${error.message}` } }));
+    ws.close(1008, "Geçersiz token");
+  }
+});
+
+wss.on("error", (error) => {
+  console.error("[server.js] WebSocket server hatası:", error);
+});
+const responseAgent = new ResponseAgent();
 
 
 app.use(
@@ -56,18 +152,6 @@ app.use(keycloak.middleware());
 app.use("/api/v10", require('./routes'));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const io = initSocket(server);
-
-io.on('connection', (socket) => {
-  console.log('Yeni socket bağlantısı:', socket.id);
-
-  socket.on('identify', ({ userid }) => {
-    if (userid) {
-      socket.join(userid);
-      console.log(`Socket ${socket.id} -> oda: ${userid}`);
-    }
-  });
-});
 
 // sitemap endpoint – async function olmalı!
 app.get('/sitemap.xml', async (req, res) => {
@@ -84,14 +168,14 @@ app.get('/sitemap.xml', async (req, res) => {
     sitemap.write({ url: '/contact', changefreq: 'monthly', priority: 0.5 });
 
     // Dinamik sayfalar (örnek)
-/*     const pages = await getPagesFromDatabase(); // Bu async fonksiyon olmalı
-    pages.forEach((page) => {
-      sitemap.write({
-        url: `/products/${page.slug}`, // örnek
-        changefreq: 'weekly',
-        priority: 0.7
-      });
-    }); */
+    /*     const pages = await getPagesFromDatabase(); // Bu async fonksiyon olmalı
+        pages.forEach((page) => {
+          sitemap.write({
+            url: `/products/${page.slug}`, // örnek
+            changefreq: 'weekly',
+            priority: 0.7
+          });
+        }); */
     sitemap.end();
     const xml = await streamToPromise(pipeline);
     res.send(xml);

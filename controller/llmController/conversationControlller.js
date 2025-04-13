@@ -21,9 +21,14 @@ const { MessageFactory } = require("../../lib/message/MessageProcessor.js");
 const QuestionDB = require("../../db/QuestionDB.js");
 const CONSTANT = { active: "active" }
 const RecommendationProcessorFactory = require("../../lib/processor/RecommendationProcessorFactory.js");
+const InformationProcessorFactory = require("../../lib/processor/InformationProcessorFactory.js");
 
-const { getIO } = require('../../lib/Socket.js');
 
+
+const RecommendationAgent = require("../../llm/agents/recommendationAgent.js")
+const ChatResponseAgent = require("../../llm/agents/chatResponseAgent.js")
+const ProducInfoResponseAgent = require("../../llm/agents/producInfoResponseAgent.js")
+const server = require("../../server");
 //privete public
 // @route   POST /api/conversation
 // @desc    Yeni bir konuşma başlatır veya mevcut bir konuşmayı günceller
@@ -32,12 +37,11 @@ const conversation = asyncHandler(async (req, res) => {
   try {
     console.log("💬 [Conversation] Yeni istek alındı:", req.body);
 
-    const { conversationid, human_message, productid, messageid } = req.body;
-
-    // ✅ 1. Kullanıcı Yetkilendirmesi
+    const { conversationid, human_message, messageid, productid, servicesid } = req.body;
     const access_token = req.kauth?.grant?.access_token?.token;
+
+    // 🛡️ Yetkilendirme
     if (!access_token) {
-      console.warn("🔒 [Conversation] Erişim token'ı bulunamadı.");
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
         message: "Token bulunamadı veya geçersiz."
       }));
@@ -46,183 +50,181 @@ const conversation = asyncHandler(async (req, res) => {
     const userkey = await Keycloak.getUserInfo(access_token);
     const user = await User.findOne({ keyid: userkey.sub });
     if (!user) {
-      console.warn("❌ [Conversation] Kullanıcı bulunamadı:", userkey.sub);
-      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
-        message: "Geçersiz kullanıcı."
-      }));
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
-    console.log("✅ [Conversation] Kullanıcı doğrulandı:", user._id);
 
     const userid = user._id;
-    const io = getIO();
     const dbCon = new ConversationDB();
-    let messageIds = [];
+    const messageIds = [];
 
-    // ✅ 2. Konuşma Varlık Kontrolü
-    let conversation;
-    if (conversationid) {
-      const existing = await dbCon.read({ userid, conversationid });
-      if (!existing) {
-        console.warn("⚠️ [Conversation] Konuşma bulunamadı:", conversationid);
-        return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
-      }
-      conversation = new Conversation(existing);
-      console.log("🗂️ [Conversation] Mevcut konuşma bulundu:", conversationid);
-    } else {
-      console.warn("⚠️ [Conversation] conversationid eksik.");
+    // 📁 Konuşma kontrolü
+    if (!conversationid) {
       return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
     }
 
-    // ✅ 3. Mesaj Kontrolü
+    const existing = await dbCon.read({ userid, conversationid });
+    if (!existing) {
+      return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+    }
+
+    const conversation = new Conversation(existing);
     if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
-      console.warn("⚠️ [Conversation] Gönderilen mesaj boş.");
       return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
     }
 
-    // ✅ 4. Intent Analizi
-    io.to(userid.toString()).emit('agent-feedback', {
-      agentId: 'agent-1',
-      status: "Kullanıcı isteği analiz ediliyor...",
-      timestamp: Date.now(),
-    });
-    const messageGroupid = uuidv4();
-
+    // IntentAgent ile niyet belirleme
     const intentAgent = new IntentAgent();
-    await intentAgent.start(MODEL1, 0.2);
-    const userIntent = await intentAgent.getIntent(userkey, human_message);
-    console.log("🎯 [IntentAgent] Niyet belirlendi:", userIntent.content.intent);
+    await intentAgent.start(MODEL1, 0.2); // MODEL1 varsayılan
+    const intent = await intentAgent.getIntent(userkey, userid, human_message); // Sadece intent döner (ör. "chat")
+    console.log("🎯 [Intent] Belirlenen niyet:", intent);
 
-    // ✅ 5. Intent'e Göre İşlem
+    const messageGroupid = uuidv4();
     let context = null;
+    let system_message;
+    let system_message_parent_id = "";
+    let savedHuman, savedSystem;
     const conversationServices = new ConversationService(userkey, userid, conversationid, human_message);
-    context = await conversationServices.createContext(userIntent.content.intent);
-    let systemMessageInfo;
-    if (userIntent.content.intent === "recommendation") {
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Kullanıcıya bir öneri yapılacak...",
-        timestamp: Date.now(),
-      });
 
-      console.log("🧠 [Recommendation] Context:", context);
+    // ⚙️ Intent'e göre işlem
+    switch (intent) {
+      case "recommendation":
+        context = await conversationServices.createRecommendationContext(intent);
+        if (!context || context.finish_reason !== "stop") {
+          return res.status(500).json(ApiResponse.error(500, "RecommendationAgent işlemi tamamlanamadı."));
+        }
 
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: context.content.userBehaviorModel,
-        timestamp: Date.now(),
-      });
+        let recommendationResult = await RecommendationProcessorFactory
+          .getRecommendationProcessor(context, messageGroupid)
+          .process();
 
-      if (!context || context.finish_reason !== "stop") {
-        console.error("❌ [Recommendation] Agent tamamlanamadı.");
-        return res.status(500).json(ApiResponse.error(500, "RecommendationAgent işlemi tamamlanamadı."));
-      }
+        // Recommendation Response (mevcut mantık korunuyor)
+        savedHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        savedSystem = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+
+        messageIds.push(savedHuman._id, savedSystem._id);
+        break;
+
+      case "production_info":
+        let _context = await conversationServices.createProductPreContext(userid, conversationid);
+        let productInformationText = await InformationProcessorFactory
+          .getInformationProcessor("production_info", _context, productid, null, messageGroupid)
+          .process();
+
+        context = await conversationServices.createProductContext(userkey, userid, conversationid, messageid, productInformationText, human_message);
+
+        savedHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        savedSystem = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+
+        messageIds.push(savedHuman._id, savedSystem._id);
+        break;
+
+      case "services_info":
+        context = await conversationServices.createServiceContext(intent);
+        let systemMessageInfo = await InformationProcessorFactory
+          .getInformationProcessor("services_info", context, null, servicesid, messageGroupid)
+          .process();
+
+        savedHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        savedSystem = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+
+        messageIds.push(savedHuman._id, savedSystem._id);
+        break;
+
+      case "chat":
+        /* context = await conversationServices.createChatContext();
+        if (!context) {
+          console.error("[Conversation] createChatContext null döndü");
+          return res.status(500).json(ApiResponse.error(500, "Chat bağlamı oluşturulamadı."));
+        } */
+
+        // system_message için daha sıkı kontrol
+        //system_message = context.content?.system_message || context.system_message || "Varsayılan sistem mesajı";
+
+        const chatResponseAgent = new ChatResponseAgent();
+        await chatResponseAgent.start(MODEL2, 0.2);
+        console.log("[Conversation] ChatResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
 
 
-      // Updated factory call: Pass null as conversation since not provided.
-      const processor = RecommendationProcessorFactory.getRecommendationProcessor(context, null, messageGroupid);
+        // Öncelikle Mesajları kaydet
+        const savedHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
 
-      systemMessageInfo = await processor.process();
+        const savedAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
 
-    } else if (userIntent.content.intent === "production_info") {
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Kullanıcı bir ürün ile ilgili bilgi istiyor...",
-        timestamp: Date.now(),
-      });
+        messageIds.push(savedHuman._id, savedAssistant._id);
 
-    } else if (userIntent.content.intent === "services_info") {
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Kullanıcı bir hizmet ile ilgili bilgi istiyor...",
-        timestamp: Date.now(),
-      });
 
-    } else if (userIntent.content.intent === "chat") {
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Kullanıcı ile sohbet edilecek...",
-        timestamp: Date.now(),
-      });
+        const mcpResponse = await chatResponseAgent.getChatResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: savedHuman, system_message: savedAssistant },
+        );
 
-    } else {
-      console.warn("❓ [Conversation] Bilinmeyen intent:", userIntent.content.intent);
+        const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(savedAssistant._id, null, assistantContent)
+
+        break;
+      default:
+        return res.status(500).json(ApiResponse.error(500, "Bilinmeyen intent."));
     }
 
-    // ✅ 6. Mesajların Oluşturulması
+    // Konuşma güncelleme
+    await dbCon.update({ userid, conversationid }, { messages: messageIds });
 
-    console.log("🆔 [Conversation] Mesaj group id:", messageGroupid);
-
-    const humanMsg = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
-    const savedHuman = await humanMsg.saveHumanMessage();
-
-    const sysMsg = MessageFactory.createMessage("system_message", messageGroupid, null, context);
-    const savedSystem = await sysMsg.saveSystemMessage(systemMessageInfo);
-
-    io.to(userid.toString()).emit('agent-feedback', {
-      agentId: 'agent-1',
-      status: "Sistem cevabı hazırlandı...",
-      timestamp: Date.now(),
-    });
-
-    messageIds.push(savedHuman._id, savedSystem._id);
-    await dbCon.update(
-      { userid, conversationid },
-      { messages: messageIds }
-    );
-    console.log("💾 [Conversation] Mesajlar konuşmaya eklendi.");
-
-    // ✅ 7. Hafıza (Memory) Özeti
+    // 🧠 Hafıza özeti
     let isMemorySaved = false;
-    if (true /* ileride includeInContext olarak koşullanabilir */) {
-      console.log("🧠 [Conversation] Hafıza özeti oluşturuluyor...");
-
+    if (true) {
       const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
       const memoryManager = new MemoryManager();
       memoryManager.loadMemory(tempConv);
 
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Konuşma özeti hazırlanıyor...",
-        timestamp: Date.now(),
-      });
-
       const summary = await memoryManager.getSummarizedForMemory();
-      io.to(userid.toString()).emit('agent-feedback', {
-        agentId: 'agent-1',
-        status: "Konuşma özeti hazırlandı.",
-        timestamp: Date.now(),
-      });
-
-      await dbCon.update(
-        { userid, conversationid },
-        { memory: summary.content }
-      );
+      await dbCon.update({ userid, conversationid }, { memory: summary.content });
       isMemorySaved = true;
-      console.log("✅ [Conversation] Hafıza konuşmaya kaydedildi.");
     }
 
-    // ✅ 8. Güncellenmiş Konuşma ile Yanıt
+    // ✅ Yanıtla
     const newConversation = await dbCon.read({ userid, conversationid });
-    io.to(userid.toString()).emit('agent-feedback', {
-      agentId: 'agent-1',
-      status: "Konuşma güncellendi.",
-      timestamp: Date.now(),
-    });
 
     return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
       success: true,
       isMemorySaved,
-      conversation: newConversation
+      //conversation: newConversation
     }));
 
   } catch (error) {
-    console.error("🔥 [Conversation] Sunucu hatası:", error);
+    console.error("🔥 [Conversation] Hata:", error);
     return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
       message: "Konuşma oluşturulurken hata oluştu.",
       error: error.message
     }));
   }
 });
+
 
 const answer = asyncHandler(async (req, res) => {
   const { id, answer } = req.body;
@@ -353,11 +355,9 @@ const detail = asyncHandler(async (req, res) => {
     }
     let userid = user._id
     console.log("userid", userid)
-    console.log("conversationid", conversationid)
     const conDb = new ConversationDB()
     // 🗂 **Konuşmayı Veri Tabanından Getir**
     const _conversation = await conDb.read({ userid, conversationid })
-    console.log("conversation", _conversation)
     // 🚨 **Hatalı veya Geçersiz Konuşma Kontrolü**
     if (!_conversation) {
       return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
@@ -484,39 +484,381 @@ const search = asyncHandler(async (req, res) => {
   }
 });
 
-const feedbacktest = asyncHandler(async (req, res) => {
-  const access_token = req.kauth.grant.access_token.token;
-  const userkey = await Keycloak.getUserInfo(access_token);
-  const user = await User.findOne({ keyid: userkey.sub });
-  if (!user) {
-    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı" }));
-  }
-  const userid = user._id;
 
-  const io = getIO();
-  let count = 0;
-  const interval = setInterval(() => {
-    count++;
-    io.to(userid).emit('agent-feedback', {
-      agentId: 'agent-1',
-      status: `Mesaj #${count} gönderildi`,
-      timestamp: Date.now(),
-    });
-
-    if (count >= 10) {
-      clearInterval(interval);
-      // 💡 Son mesaj gönderildikten sonra HTTP response'u gönderiyoruz
-      res.status(200).json(ApiResponse.success(200, '10 feedback gönderildi', {}));
-    }
-  }, 500);
-});
 
 module.exports = {
-  create, conversation, deleteConversation, feedbacktest, updateTitle, historyies, detail, answer, deleteQuestion, search
+  create, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion, search
 };
 
 
 
+/**
+ * const conversation = asyncHandler(async (req, res) => {
+  try {
+    console.log("💬 [Conversation] Yeni istek alındı:", req.body);
+
+    const { conversationid, human_message, messageid, productid, servicesid } = req.body;
+    const access_token = req.kauth?.grant?.access_token?.token;
+
+    // 🛡️ Yetkilendirme
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
+    const userid = user._id;
+    const io = getIO();
+    const dbCon = new ConversationDB();
+    const messageIds = [];
+
+    // 📁 Konuşma kontrolü
+    if (!conversationid) {
+      return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
+    }
+
+    const existing = await dbCon.read({ userid, conversationid });
+    if (!existing) {
+      return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+    }
+
+    const conversation = new Conversation(existing);
+    if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
+      return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
+    }
+
+    const intentAgent = new IntentAgent();
+    await intentAgent.start(MODEL1, 0.2);
+    const userIntent = await intentAgent.getIntent(userkey, human_message);
+    console.log("userIntent", userIntent)
+    const intent = userIntent.content.intent;
+    console.log("🎯 [Intent] Belirlenen niyet:", intent);
+
+    const messageGroupid = uuidv4();
+    let context = null;
+    let system_message;
+    let system_message_parent_id;
+    let savedHuman, savedSystem;
+    const conversationServices = new ConversationService(userkey, userid, conversationid, human_message);
+
+    // ⚙️ Intent'e göre işlem
+    switch (intent) {
+      case "recommendation":
+
+        context = await conversationServices.createRecommendationContext(intent);
+        if (!context || context.finish_reason !== "stop") {
+          return res.status(500).json(ApiResponse.error(500, "RecommendationAgent işlemi tamamlanamadı."));
+        }
+
+        let reccomendationResult = await RecommendationProcessorFactory
+          .getRecommendationProcessor(context, messageGroupid)
+          .process()
+
+        //Recommendation Response
+
+
+        break;
+
+
+
+      case "production_info":
+        let _context = await conversationServices.createProductPreContext(userid, conversationid);
+        let productInformationText = await InformationProcessorFactory
+          .getInformationProcessor("production_info", _context, productid, null, messageGroupid)
+          .process();
+        //userinfo,userid, conversationid, messageid, productinfo,            human_message
+        context = await conversationServices.createProductContext(userkey, userid, conversationid, messageid, productInformationText, human_message);
+
+        break;
+      case "services_info":
+        context = await conversationServices.createServiceContext(intent); // varsa
+        systemMessageInfo = await InformationProcessorFactory
+          .getInformationProcessor("services_info", context, null, servicesid, messageGroupid)
+          .process();
+        break;
+
+      case "chat":
+        context = await conversationServices.createChatContext();
+        system_message = context.content.system_message
+        system_message_parent_id = ""
+
+
+        //Response Burada ayarlansın. Response Stream olarak vereceğiz
+        let chatResponseAgent = new ChatResponseAgent();
+        await chatResponseAgent.start(MODEL2, 0.2);
+        console.log("ChatResponseAgent started successfully");
+        let context = await chatResponseAgent.getChatResponseContext(this.userinfo, this.userid, this.conversationid, this.human_message);
+
+
+        // 💬 Mesajları kaydet
+        savedHuman = await MessageFactory
+          //type, userid, conversationid,intent, groupid, parentMessageid,message
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        savedSystem = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(system_message_parent_id, system_message);
+        break;
+
+      default:
+        return res.status(500).json(ApiResponse.error(500, "Bilinmeyen intent."));
+    }
+
+
+
+    /*     // 💬 Mesajları kaydet
+        savedHuman = await MessageFactory
+          //type, userid, conversationid,intent, groupid, parentMessageid,message
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+    
+        savedSystem = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(system_message_parent_id, system_message);
+    
+
+    //Recommendationlarıda burada update edebiliriz.
+    messageIds.push(savedHuman._id, savedSystem._id);
+    await dbCon.update({ userid, conversationid },
+      { messages: messageIds });
+
+    // 🧠 Hafıza özeti
+    let isMemorySaved = false;
+    if (true) {
+      const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
+      const memoryManager = new MemoryManager();
+      memoryManager.loadMemory(tempConv);
+
+      const summary = await memoryManager.getSummarizedForMemory();
+      await dbCon.update({ userid, conversationid }, { memory: summary.content });
+      isMemorySaved = true;
+    }
+
+    // ✅ Yanıtla
+    const newConversation = await dbCon.read({ userid, conversationid });
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
+      success: true,
+      isMemorySaved,
+      conversation: newConversation
+    }));
+
+  } catch (error) {
+    console.error("🔥 [Conversation] Hata:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+      message: "Konuşma oluşturulurken hata oluştu.",
+      error: error.message
+    }));
+  }
+});
+ */
+
+/**
+ * const conversation = asyncHandler(async (req, res) => {
+  try {
+    console.log("💬 [Conversation] Yeni istek alındı:", req.body);
+
+    const { conversationid, human_message, productid, messageid } = req.body;
+
+    // ✅ 1. Kullanıcı Yetkilendirmesi
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      console.warn("🔒 [Conversation] Erişim token'ı bulunamadı.");
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      console.warn("❌ [Conversation] Kullanıcı bulunamadı:", userkey.sub);
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
+        message: "Geçersiz kullanıcı."
+      }));
+    }
+    console.log("✅ [Conversation] Kullanıcı doğrulandı:", user._id);
+
+    const userid = user._id;
+    const io = getIO();
+    const dbCon = new ConversationDB();
+    let messageIds = [];
+    let savedHuman;
+    let savedSystem
+    // ✅ 2. Konuşma Varlık Kontrolü
+    let conversation;
+    if (conversationid) {
+      const existing = await dbCon.read({ userid, conversationid });
+      if (!existing) {
+        console.warn("⚠️ [Conversation] Konuşma bulunamadı:", conversationid);
+        return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+      }
+      conversation = new Conversation(existing);
+      console.log("🗂️ [Conversation] Mevcut konuşma bulundu:", conversationid);
+    } else {
+      console.warn("⚠️ [Conversation] conversationid eksik.");
+      return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
+    }
+
+    // ✅ 3. Mesaj Kontrolü
+    if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
+      console.warn("⚠️ [Conversation] Gönderilen mesaj boş.");
+      return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
+    }
+
+    // ✅ 4. Intent Analizi
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: "Kullanıcı isteği analiz ediliyor...",
+      timestamp: Date.now(),
+    });
+
+    const intentAgent = new IntentAgent();
+    await intentAgent.start(MODEL1, 0.2);
+    const userIntent = await intentAgent.getIntent(userkey, human_message);
+    console.log("🎯 [IntentAgent] Niyet belirlendi:", userIntent.content.intent);
+
+    // ✅ 5. Intent'e Göre İşlem
+    let context = null;
+    const conversationServices = new ConversationService(userkey, userid, conversationid, human_message);
+
+    let systemMessageInfo;
+    if (userIntent.content.intent === "recommendation") {
+      const messageGroupid = uuidv4();
+
+
+      console.log("🧠 [Recommendation] Context:", context);
+
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: context.content.userBehaviorModel,
+        timestamp: Date.now(),
+      });
+      context = await conversationServices.createRecommendationContext(userIntent.content.intent);
+      if (!context || context.finish_reason !== "stop") {
+        console.error("❌ [Recommendation] Agent tamamlanamadı.");
+        return res.status(500).json(ApiResponse.error(500, "RecommendationAgent işlemi tamamlanamadı."));
+      }
+      // Updated factory call: Pass null as conversation since not provided.
+      const processor = RecommendationProcessorFactory.getRecommendationProcessor(context, null, messageGroupid);
+      systemMessageInfo = await processor.process();
+
+      // ✅ 6. Mesajların Oluşturulması
+
+      console.log("🆔 [Conversation] Mesaj group id:", messageGroupid);
+
+      const humanMsg = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
+      savedHuman = await humanMsg.saveHumanMessage();
+
+      const sysMsg = MessageFactory.createMessage("system_message", messageGroupid, null, context);
+      console.log("systemMessageInfo", systemMessageInfo)
+      savedSystem = await sysMsg.saveSystemMessage(systemMessageInfo);
+
+    } else if (userIntent.content.intent === "production_info") {
+      const messageGroupid = uuidv4();
+
+
+      context = await conversationServices.createProductContext(userIntent.content.intent);
+
+      const processor = InformationProcessorFactory.getInformationProcessor(context, messageGroupid);
+      systemMessageInfo = await processor.process();
+
+      const humanMsg = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
+      savedHuman = await humanMsg.saveHumanMessage();
+
+      const sysMsg = MessageFactory.createMessage("system_message", messageGroupid, null, context);
+      savedSystem = await sysMsg.saveSystemMessage(systemMessageInfo);
+
+    } else if (userIntent.content.intent === "services_info") {
+      const messageGroupid = uuidv4();
+
+
+      const processor = RecommendationProcessorFactory.getRecommendationProcessor(context, messageGroupid);
+      systemMessageInfo = await processor.process();
+
+      const humanMsg = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
+      savedHuman = await humanMsg.saveHumanMessage();
+
+      const sysMsg = MessageFactory.createMessage("system_message", messageGroupid, null, context);
+      savedSystem = await sysMsg.saveSystemMessage(systemMessageInfo);
+
+    } else if (userIntent.content.intent === "chat") {
+      const messageGroupid = uuidv4();
+
+      context = await conversationServices.createChatContext(userIntent.content.intent);
+      const humanMsg = MessageFactory.createMessage("human_message", messageGroupid, human_message, context);
+      savedHuman = await humanMsg.saveHumanMessage();
+
+      const sysMsg = MessageFactory.createMessage("system_message", messageGroupid, null, context);
+      savedSystem = await sysMsg.saveSystemMessage({ questions: {}, recommendations: [] });
+    } else {
+      console.warn("❓ [Conversation] Bilinmeyen intent:", userIntent.content.intent);
+      return res.status(500).json(ApiResponse.error(500, " [Conversation] Bilinmeyen intent."));
+    }
+
+
+    messageIds.push(savedHuman._id, savedSystem._id);
+    await dbCon.update(
+      { userid, conversationid },
+      { messages: messageIds }
+    );
+    console.log("💾 [Conversation] Mesajlar konuşmaya eklendi.");
+
+    // ✅ 7. Hafıza (Memory) Özeti
+    let isMemorySaved = false;
+    if (true /* ileride includeInContext olarak koşullanabilir) {
+      console.log("🧠 [Conversation] Hafıza özeti oluşturuluyor...");
+
+      const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
+      const memoryManager = new MemoryManager();
+      memoryManager.loadMemory(tempConv);
+
+      io.to(userid.toString()).emit('agent-feedback', {
+        agentId: 'agent-1',
+        status: "Konuşma özeti hazırlanıyor...",
+        timestamp: Date.now(),
+      });
+
+      //Bu ksımı Rabbit ile halledelim
+      const summary = await memoryManager.getSummarizedForMemory();
+      await dbCon.update(
+        { userid, conversationid },
+        { memory: summary.content }
+      );
+      isMemorySaved = true;
+      console.log("✅ [Conversation] Hafıza konuşmaya kaydedildi.");
+    }
+
+    // ✅ 8. Güncellenmiş Konuşma ile Yanıt
+    const newConversation = await dbCon.read({ userid, conversationid });
+    io.to(userid.toString()).emit('agent-feedback', {
+      agentId: 'agent-1',
+      status: "Konuşma güncellendi.",
+      timestamp: Date.now(),
+    });
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
+      success: true,
+      isMemorySaved,
+      conversation: newConversation
+    }));
+
+  } catch (error) {
+    console.error("🔥 [Conversation] Sunucu hatası:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+      message: "Konuşma oluşturulurken hata oluştu.",
+      error: error.message
+    }));
+  }
+});
+ */
 
 /**
  * //privete public

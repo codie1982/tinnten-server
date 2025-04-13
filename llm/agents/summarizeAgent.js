@@ -1,5 +1,5 @@
 const Cost = require("../../lib/cost")
-const summarizeContext = require("../Context/summarizeContext")
+const summarizeContext = require("../system_promt/summarizeContext")
 const BaseAgent = require("./BaseAgent")
 
 class SummarizeAgent extends BaseAgent {

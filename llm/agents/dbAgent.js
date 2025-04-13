@@ -1,5 +1,5 @@
 const Cost = require("../../lib/cost")
-const { productDBContext, servicesDBContext } = require("../Context/dbContext")
+const { productDBContext, servicesDBContext } = require("../system_promt/dbContext")
 const BaseAgent = require("./BaseAgent")
 
 class DBAgent extends BaseAgent {

@@ -1,96 +1,245 @@
-const { connection } = require("../../llm/llmconfig")
+const { connection } = require("../../llm/llmconfig");
+const { v4: uuidv4 } = require("uuid");
 
 class BaseAgent {
-    constructor(model = "gpt-3.5-turbo", tempature = 0.2) {
-        this.model = model
-        this.tempature = tempature
+  constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
+    this.model_name = model;
+    this.temperature = temperature;
+    this.model = null;
+  }
+
+  async start(model_name = this.model_name, temperature = this.temperature) {
+    this.model = await connection(model_name); // Model-specific bağlantı
+    this.model_name = model_name;
+    this.temperature = temperature;
+    console.log(`[BaseAgent] Model initialized: ${this.model_name}`);
+  }
+
+  // MCP mesajı oluştur
+  createMCPMessage(context_id, messages, stream = false, parameters = {}) {
+    return {
+      version: "1.0",
+      context_id: context_id || uuidv4(),
+      messages,
+      stream,
+      model: this.model_name,
+      parameters: {
+        temperature: this.temperature,
+        max_tokens: parameters.max_tokens || 1000,
+        ...parameters,
+      },
+    };
+  }
+
+  // MCP yanıtını parse et
+  parseMCPResponse(response) {
+    try {
+      if (typeof response === "object") return response;
+      return JSON.parse(response);
+    } catch (error) {
+      console.error("[BaseAgent] MCP parse error:", error);
+      return {
+        system_message: "Yanıt çözümlenemedi",
+        action: "none",
+        products: [],
+        services: [],
+      };
     }
-    async start(model_name, temperature) {
-        this.model = await connection()
-        this.model_name = model_name
-        this.temperature = temperature
+  }
+
+  cleanJSON(responseText) {
+    try {
+      if (typeof responseText === "object") return responseText;
+      const cleaned = responseText
+        .replace(/```json|```|\*\*\*json|\*\*\*/gi, "")
+        .trim();
+      return JSON.parse(cleaned);
+    } catch (error) {
+      console.error("[BaseAgent] JSON parse error:", error);
+      return {
+        system_message: "Cevap çözümlenemedi",
+        action: "none",
+        products: [],
+        services: [],
+      };
+    }
+  }
+
+  cleanMarkdown(responseText) {
+    try {
+      if (typeof responseText === "object") return responseText;
+      let cleaned = responseText
+        .replace(/```(json|markdown)?/gi, "")
+        .replace(/```/g, "")
+        .trim();
+      console.log("[BaseAgent] cleanMarkdown:", cleaned);
+      return cleaned;
+    } catch (error) {
+      console.error("[BaseAgent] Markdown clean error:", error);
+      return {
+        system_message: "Cevap çözümlenemedi",
+        action: "none",
+        products: [],
+        services: [],
+      };
+    }
+  }
+
+  async sendChatCompletion(mcpMessage) {
+    console.log(`[BaseAgent] Sending MCP chat completion to model: ${this.model_name}`);
+
+    if (!this.model) {
+      throw new Error("Model not initialized. Call start() first.");
     }
 
-    cleanJSON(responseText) {
-        try {
-            // Eğer zaten bir nesne ise (bazı durumlarda model JSON olarak parse edilmiş dönebilir)
-            if (typeof responseText === 'object') {
-                return responseText;
-            }
+    try {
+      const messages = mcpMessage.messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
 
-            const cleaned = responseText
-                .replace(/```json|```|\*\*\*json|\*\*\*/gi, '')  // Markdown etiketlerini temizle
-                .trim();
+      const completion = await this.model.chat.completions.create({
+        model: mcpMessage.model || this.model_name,
+        messages,
+        temperature: mcpMessage.parameters.temperature || this.temperature,
+        max_tokens: mcpMessage.parameters.max_tokens,
+      });
 
-            return JSON.parse(cleaned);
-        } catch (error) {
-            return {
-                system_message: "Cevap çözümlenemedi",
-                action: "none",
-                products: [],
-                services: []
-            };
+      console.log("[BaseAgent] Chat completion received.");
+      const responseText = completion.choices[0].message.content;
+      const finishReason = completion.choices[0].finish_reason;
+      const tokens = completion.usage;
+
+      const parsedContent = this.cleanJSON(responseText);
+      const Cost = require("../../lib/cost");
+      const costCalc = new Cost(this.model_name).calculate(
+        tokens.prompt_tokens,
+        tokens.completion_tokens
+      );
+
+      return this.createMCPMessage(mcpMessage.context_id, [
+        {
+          role: "assistant",
+          content: parsedContent,
+          timestamp: new Date().toISOString(),
+        },
+      ], false, {
+        finish_reason: finishReason,
+        tokens: {
+          prompt_tokens: tokens.prompt_tokens,
+          completion_tokens: tokens.completion_tokens,
+          total_tokens: tokens.total_tokens,
+        },
+        cost: {
+          promptCost: costCalc.promptCost,
+          completionCost: costCalc.completionCost,
+          totalCost: costCalc.totalCost,
+          unit: "DL",
+        },
+      });
+    } catch (error) {
+      console.error("[BaseAgent] Chat completion error:", error);
+      return this.createMCPMessage(mcpMessage.context_id, [
+        {
+          role: "system",
+          content: "Cevap alınamadı",
+          timestamp: new Date().toISOString(),
+        },
+      ], false, { error: error.message });
+    }
+  }
+
+  async sendChatCompletionStream(mcpMessage, onTokenCallback) {
+    console.log(`[BaseAgent] Sending MCP streaming chat completion to model: ${this.model_name}`);
+
+    if (!this.model) {
+      throw new Error("Model not initialized. Call start() first.");
+    }
+
+    try {
+      const messages = mcpMessage.messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      const stream = await this.model.chat.completions.create(
+        {
+          model: mcpMessage.model || this.model_name,
+          messages,
+          temperature: mcpMessage.parameters.temperature || this.temperature,
+          max_tokens: mcpMessage.parameters.max_tokens,
+          stream: true,
+        },
+        { responseType: "stream" }
+      );
+
+      let accumulatedContent = "";
+      let tokens = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta?.content || "";
+        const finishReason = chunk.choices[0]?.finish_reason;
+
+        if (delta) {
+          accumulatedContent += delta;
+          const cleanedDelta = this.cleanMarkdown(delta);
+
+          if (onTokenCallback) {
+            onTokenCallback({
+              version: "1.0",
+              context_id: mcpMessage.context_id,
+              delta: {
+                role: "assistant",
+                content: cleanedDelta,
+                timestamp: new Date().toISOString(),
+              },
+              finish_reason: null,
+            });
+          }
         }
-    }
 
-    cleanMarkdown(responseText) {
-        try {
-            // Eğer zaten bir nesne ise (örneğin modelden JSON olarak geldiyse)
-            if (typeof responseText === 'object') {
-                return responseText;
-            }
+        if (finishReason) {
+          console.log(`[BaseAgent] Stream completed with reason: ${finishReason}`);
+          tokens.completion_tokens = Math.round(accumulatedContent.length / 4);
+          const Cost = require("../../lib/cost");
+          const costCalc = new Cost(this.model_name).calculate(
+            tokens.prompt_tokens,
+            tokens.completion_tokens
+          );
 
-            // Markdown etiketlerini temizle
-            let cleaned = responseText
-                .replace(/```(json|markdown)?/gi, '') // baştaki ```json, ```markdown vb.
-                .replace(/```/g, '')                  // sondaki ```
-                .trim();
-
-
-            console.log("cleanMarkdown", cleaned)
-            return cleaned;
-
-        } catch (error) {
-            return {
-                system_message: "Cevap çözümlenemedi",
-                action: "none",
-                products: [],
-                services: []
-            };
+          return this.createMCPMessage(mcpMessage.context_id, [
+            {
+              role: "assistant",
+              content: this.cleanJSON(accumulatedContent),
+              timestamp: new Date().toISOString(),
+            },
+          ], false, {
+            finish_reason: finishReason,
+            tokens: {
+              prompt_tokens: tokens.prompt_tokens,
+              completion_tokens: tokens.completion_tokens,
+              total_tokens: tokens.prompt_tokens + tokens.completion_tokens,
+            },
+            cost: {
+              promptCost: costCalc.promptCost,
+              completionCost: costCalc.completionCost,
+              totalCost: costCalc.totalCost,
+              unit: "DL",
+            },
+          });
         }
+      }
+    } catch (error) {
+      console.error("[BaseAgent] Stream error:", error);
+      return this.createMCPMessage(mcpMessage.context_id, [
+        {
+          role: "system",
+          content: "Stream sırasında hata oluştu",
+          timestamp: new Date().toISOString(),
+        },
+      ], false, { error: error.message });
     }
+  }
 }
-module.exports = BaseAgent
 
-/**
- * // Eğer string içinde doğrudan JSON varsa parse etmeye çalış
-            if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
-                return JSON.parse(cleaned);
-            }
-    
-            // Değilse: markdown'ı parçala ve özel alanlara ayır
-            const lines = cleaned.split('\n');
-            const result = {
-                system_message: '',
-                products: [],
-                services: [],
-            };
-    
-            for (let line of lines) {
-                line = line.trim();
-    
-                // system_response alanı
-                const systemMatch = line.match(/^\*\*system_response\*\*\s*:\s*(.+)$/i);
-                if (systemMatch) {
-                    result.system_message += systemMatch[1].trim();
-                    continue;
-                }
-    
-                // Ürünler (Yardımcı ürün satırları)
-                const productMatch = line.match(/^- \*\*(.+?)\*\);
-                if (productMatch) {
-                    result.products.push(productMatch[1].trim());
-                    continue;
-                }
-            }
- */
+module.exports = BaseAgent;

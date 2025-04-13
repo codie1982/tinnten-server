@@ -1,18 +1,19 @@
 const Cost = require("../../lib/cost")
-const orientationContext = require("../system_promt/orientationContext")
+const responseContext = require("../system_promt/responseContext")
 const BaseAgent = require("./BaseAgent")
 
-class RecommendationAgent extends BaseAgent {
-    async getOrientationContext(user, userid, conversationid, human_message) {
-        this.system_message = await orientationContext(user, conversationid, human_message)
-        console.log("[LLMAgent] Orientation context received:", this.system_message)
-        console.log("[LLMAgent] Sending chat completion request...")
+class ResponseAgent extends BaseAgent {
+    async getResponseContext(search_context, mainProductList,auxiliaryProductList, serviceList) {
+        
+        this.system_message = await responseContext(search_context, mainProductList,auxiliaryProductList, serviceList)
+        console.log("[ResponseAgent] Response System Message received:", this.system_message)
+        console.log("[ResponseAgent] Sending chat completion request...")
         const completion = await this.model.chat.completions.create({
             model: this.model_name,
             messages: [
                 {
                     role: 'system',
-                    content: "Sen bir akıllı öneri asistanısın"
+                    content: "Sen bir Akıllı Chatbotsun"
                 },
                 {
                     role: 'user',
@@ -23,18 +24,14 @@ class RecommendationAgent extends BaseAgent {
         });
 
 
-        console.log("[LLMAgent] Completion response received.")
-        console.log("[LLMAgent] Completion.", completion.choices[0].message)
-
+        console.log("[ResponseAgent] Completion response received.")
         let response = completion.choices[0].message.content
-        console.log("[LLMAgent] Raw response:", response, typeof (response))
-        const parseResponse = this.cleanJSON(response);
+        console.log("[ResponseAgent] Raw response:", response)
+        const parseResponse = this.cleanMarkdown(response);
 
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
-            userid: userid,
-            conversationid: conversationid,
             model: completion.model,
             content: parseResponse,
             finish_reason: completion.choices[0].finish_reason,
@@ -51,6 +48,7 @@ class RecommendationAgent extends BaseAgent {
             }
         }
     }
+
 }
 
-module.exports = RecommendationAgent
+module.exports = ResponseAgent

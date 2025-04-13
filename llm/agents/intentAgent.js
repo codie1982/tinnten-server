@@ -1,54 +1,56 @@
-const Cost = require("../../lib/cost")
-const intentContext = require("../Context/intentContext")
-const BaseAgent = require("./BaseAgent")
+
+const intentSystemPromt = require("../system_promt/intentSystemPromt");
+const BaseAgent = require("./BaseAgent");
+
 
 class IntentAgent extends BaseAgent {
-    async getIntent(user, human_message) {
-        this.system_message = await intentContext(user,human_message)
-        console.log("[IntentAgent] Intent context received:", this.system_message)
-        console.log("[IntentAgent] Sending chat completion request...")
-        const completion = await this.model.chat.completions.create({
-            model: this.model_name,
-            messages: [
-                {
-                    role: 'system',
-                    content: "Sen bir akıllı assistansın"
-                },
-                {
-                    role: 'user',
-                    content: this.system_message
-                }
-            ],
-            temperature: this.temperature
-        });
+  constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
+    super(model, temperature);
+  }
 
+  async getIntent(user, userid, human_message) {
+    try {
+      console.log("[IntentAgent] Fetching intent system prompt...");
+      const system_message = await intentSystemPromt(user, human_message);
+      console.log("[IntentAgent] Intent context received:", system_message);
 
-        console.log("[IntentAgent] Completion response received.")
-        console.log("[IntentAgent] Completion.", completion.choices[0].message)
+      // MCP mesajı oluştur
+      const mcpMessage = this.createMCPMessage(
+        null, // context_id gerekmiyorsa null, yoksa dinamik atanabilir
+        [
+          {
+            role: "system",
+            content: system_message || "Sen bir akıllı asistansın",
+            timestamp: new Date().toISOString(),
+          },
+          {
+            role: "user",
+            content: human_message,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+        false // Stream kullanılmıyor
+      );
 
-        let response = completion.choices[0].message.content
-        console.log("[IntentAgent] Raw response:", response, typeof (response))
-        const parseResponse = this.cleanJSON(response);
+      console.log("[IntentAgent] Sending MCP chat completion request...");
+      const response = await this.sendChatCompletion(mcpMessage);
 
-        let nCost = new Cost(this.model_name)
-        let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
-        return {
-            model: completion.model,
-            content: parseResponse,
-            finish_reason: completion.choices[0].finish_reason,
-            tokens: {
-                prompt_tokens: completion.usage.prompt_tokens,
-                completion_tokens: completion.usage.completion_tokens,
-                total_tokens: completion.usage.total_tokens,
-            },
-            cost: {
-                promptCost: calculate.promptCost,
-                completionCost: calculate.completionCost,
-                totalCost: calculate.totalCost,
-                unit: "DL"
-            }
-        }
+      console.log("[IntentAgent] Completion response received:", response);
+
+      // MCP yanıtından içeriği al
+      const rawResponse = response.messages[0].content;
+      console.log("[IntentAgent] Raw response:", rawResponse, typeof rawResponse);
+
+      // JSON’u parse et
+      const parsedResponse = this.cleanJSON(rawResponse);
+      console.log("[IntentAgent] Parsed response:", parsedResponse);
+
+      return parsedResponse.intent;
+    } catch (error) {
+      console.error("[IntentAgent] Intent analiz hatası:", error);
+      return "chat"; // Varsayılan intent, hata durumunda
     }
+  }
 }
 
-module.exports = IntentAgent
+module.exports = IntentAgent;

@@ -1,18 +1,20 @@
+const { conversation } = require("../../controller/llmController/conversationControlller")
 const Cost = require("../../lib/cost")
-const orientationContext = require("../system_promt/orientationContext")
+const productInfoResponseContext = require("../system_promt/productInfoResponseContext")
 const BaseAgent = require("./BaseAgent")
 
-class RecommendationAgent extends BaseAgent {
-    async getOrientationContext(user, userid, conversationid, human_message) {
-        this.system_message = await orientationContext(user, conversationid, human_message)
-        console.log("[LLMAgent] Orientation context received:", this.system_message)
-        console.log("[LLMAgent] Sending chat completion request...")
+class ProducInfoResponseAgent extends BaseAgent {
+    async getProductionInfoResponseContext(user,userid, conversationid, messageid,productinfo, human_message) {
+
+        this.system_message = await productInfoResponseContext(user, userid, conversationid, messageid, productinfo, human_message)
+        console.log("[ProducInfoResponseAgent] Response System Message received:", this.system_message)
+        console.log("[ProducInfoResponseAgent] Sending chat completion request...")
         const completion = await this.model.chat.completions.create({
             model: this.model_name,
             messages: [
                 {
                     role: 'system',
-                    content: "Sen bir akıllı öneri asistanısın"
+                    content: "Sen bir Akıllı chatbotsun"
                 },
                 {
                     role: 'user',
@@ -21,22 +23,19 @@ class RecommendationAgent extends BaseAgent {
             ],
             temperature: this.temperature
         });
-
-
-        console.log("[LLMAgent] Completion response received.")
-        console.log("[LLMAgent] Completion.", completion.choices[0].message)
-
+        console.log("[ProducInfoResponseAgent] Completion response received.")
         let response = completion.choices[0].message.content
-        console.log("[LLMAgent] Raw response:", response, typeof (response))
-        const parseResponse = this.cleanJSON(response);
+        console.log("[ProducInfoResponseAgent] Raw response:", response)
+        const parseResponse = this.cleanMarkdown(response);
 
         let nCost = new Cost(this.model_name)
         let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
         return {
+            model: completion.model,
             userid: userid,
             conversationid: conversationid,
-            model: completion.model,
-            content: parseResponse,
+            parentMessageid: messageid,
+            content: { system_message: parseResponse },
             finish_reason: completion.choices[0].finish_reason,
             tokens: {
                 prompt_tokens: completion.usage.prompt_tokens,
@@ -51,6 +50,7 @@ class RecommendationAgent extends BaseAgent {
             }
         }
     }
+
 }
 
-module.exports = RecommendationAgent
+module.exports = ProducInfoResponseAgent

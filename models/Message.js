@@ -8,6 +8,7 @@ class Message {
             this.type = data.type;
             this.userid = data.userid;
             this.conversationid = data.conversationid;
+            this.parentid = data.parentid == null ? null : data.parentid;
             this.groupid = data.groupid;
             this.content = data.content;
             this.intent = data.intent || "";
@@ -34,7 +35,7 @@ class Message {
     getConversationId() {
         return this.conversationid;
     }
-    
+
     getType() {
         return this.type;
     }
@@ -92,6 +93,9 @@ class Message {
     }
     setConversationId(conversationid) {
         this.conversationid = conversationid;
+    }
+    setParentid(messageid) {
+        this.parentid = messageid;
     }
 
     setGroupId(groupid) {

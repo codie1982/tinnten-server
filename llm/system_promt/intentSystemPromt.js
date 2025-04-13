@@ -1,5 +1,5 @@
 
-const intentContext = (user,human_message) => {
+const intentSystemPromt = (user, human_message) => {
     return new Promise((resolve, reject) => {
         let context = `"Sen bir akıllı LLM'sin. Kullanıcının mesajını analiz ederek niyetini belirlemelisin.
                     Kullanıcının isteği şu 5 kategoriden birine girmelidir:
@@ -9,6 +9,7 @@ const intentContext = (user,human_message) => {
                     ✅ D) Ürün Bilgi Talebi → Kullanıcı bir ürün hakkında bilgi isteyebilir.  Cevap : production_info
                     ✅ E) Hizmet Bilgi Talebi → Kullanıcı bir hitmet hakkında bilgi isteyebilir. Cevap  : services_info
 
+                    Kullancı ismi = ${user?.name}
                     Kullanıcı istegi = ${human_message}
                     
                     Çıktıyı aşağıdaki JSON formatında üret:
@@ -19,11 +20,11 @@ const intentContext = (user,human_message) => {
                     }`
 
 
-        console.log("[intentContext] Final context built.")
+        console.log("[intentSystemPromt] Final context built.")
         resolve(context)
     })
 }
 
-module.exports = async (user,human_message) => {
-    return intentContext(user,human_message)
+module.exports = async (user, human_message) => {
+    return intentSystemPromt(user, human_message)
 }

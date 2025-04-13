@@ -1,5 +1,5 @@
 const Cost = require("../../lib/cost")
-const { seperateContext } = require("../Context/seperateContext")
+const { seperateContext } = require("../system_promt/seperateContext")
 const BaseAgent = require("./BaseAgent")
 
 class SeperateAgent extends BaseAgent {
