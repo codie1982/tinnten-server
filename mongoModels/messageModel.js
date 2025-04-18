@@ -15,8 +15,6 @@ const messageSchema = new mongoose.Schema({
   //search_context: [{ type: String }], // arama terimleri
   //action: { type: String }, // eylemler
   // 🔹 "System Message" için özel alanlar
-  recommendations: [{ type: mongoose.Schema.Types.ObjectId, ref: "recommendation" }] // Öneriler
-
-
+  recommendation: { type: mongoose.Schema.Types.ObjectId, ref: "recommendation", default: null } // Öneriler
 }, { timestamps: true });
 module.exports = mongoose.model('message', messageSchema);;

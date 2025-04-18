@@ -27,8 +27,12 @@ const InformationProcessorFactory = require("../../lib/processor/InformationProc
 
 const RecommendationAgent = require("../../llm/agents/recommendationAgent.js")
 const ChatResponseAgent = require("../../llm/agents/chatResponseAgent.js")
+const InformationResponseAgent = require("../../llm/agents/informationResponseAgent.js")
+const RecomResponseAgent = require("../../llm/agents/recomResponseAgent.js")
 const ProducInfoResponseAgent = require("../../llm/agents/producInfoResponseAgent.js")
 const server = require("../../server");
+const RecomAgent = require("../../llm/agents/recomAgent.js");
+const RecommendationDB = require("../../db/RecommendationDB.js");
 //privete public
 // @route   POST /api/conversation
 // @desc    Yeni bir konuşma başlatır veya mevcut bir konuşmayı günceller
@@ -37,7 +41,7 @@ const conversation = asyncHandler(async (req, res) => {
   try {
     console.log("💬 [Conversation] Yeni istek alındı:", req.body);
 
-    const { conversationid, human_message, messageid, productid, servicesid } = req.body;
+    const { conversationid, human_message, productid, servicesid } = req.body;
     const access_token = req.kauth?.grant?.access_token?.token;
 
     // 🛡️ Yetkilendirme
@@ -62,12 +66,12 @@ const conversation = asyncHandler(async (req, res) => {
       return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
     }
 
-    const existing = await dbCon.read({ userid, conversationid });
-    if (!existing) {
+    const conversationDetail = await dbCon.read({ userid, conversationid });
+    if (!conversationDetail) {
       return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
     }
 
-    const conversation = new Conversation(existing);
+    const conversation = new Conversation(conversationDetail);
     if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
       return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
     }
@@ -75,85 +79,175 @@ const conversation = asyncHandler(async (req, res) => {
     // IntentAgent ile niyet belirleme
     const intentAgent = new IntentAgent();
     await intentAgent.start(MODEL1, 0.2); // MODEL1 varsayılan
-    const intent = await intentAgent.getIntent(userkey, userid, human_message); // Sadece intent döner (ör. "chat")
+                                              //user, humanMessage, memory = [], scoped = {}
+    const intent = await intentAgent.getIntent(userkey, human_message,); // Sadece intent döner (ör. "chat")
     console.log("🎯 [Intent] Belirlenen niyet:", intent);
 
     const messageGroupid = uuidv4();
     let context = null;
-    let system_message;
+    let preHuman, preAssistant;
     let system_message_parent_id = "";
-    let savedHuman, savedSystem;
-    const conversationServices = new ConversationService(userkey, userid, conversationid, human_message);
 
     // ⚙️ Intent'e göre işlem
     switch (intent) {
       case "recommendation":
-        context = await conversationServices.createRecommendationContext(intent);
-        if (!context || context.finish_reason !== "stop") {
-          return res.status(500).json(ApiResponse.error(500, "RecommendationAgent işlemi tamamlanamadı."));
-        }
+        const recomAgent = new RecomAgent();
+        await recomAgent.start(MODEL2, 0.2);
+        console.log("[recomAgent] RecomAgent started successfully");
+        let recomContext = await recomAgent.getRecommendation(userkey, conversationDetail, human_message)
 
-        let recommendationResult = await RecommendationProcessorFactory
-          .getRecommendationProcessor(context, messageGroupid)
-          .process();
+        let processor = await RecommendationProcessorFactory.getRecommendationProcessor(recomContext, human_message);
+        let recomResult = await processor.process();
+
+        let recomid = recomResult.recomid
 
         // Recommendation Response (mevcut mantık korunuyor)
-        savedHuman = await MessageFactory
+        preHuman = await MessageFactory
           .createMessage("human_message", userid, conversationid, intent, messageGroupid)
           .saveHumanMessage(human_message);
 
-        savedSystem = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+        let systemMessage = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid);
 
-        messageIds.push(savedHuman._id, savedSystem._id);
-        break;
 
-      case "production_info":
-        let _context = await conversationServices.createProductPreContext(userid, conversationid);
-        let productInformationText = await InformationProcessorFactory
-          .getInformationProcessor("production_info", _context, productid, null, messageGroupid)
-          .process();
+        await systemMessage.setRecommendations(recomResult.recomid);
+        preAssistant = await systemMessage.saveSystemMessage(null, "");
 
-        context = await conversationServices.createProductContext(userkey, userid, conversationid, messageid, productInformationText, human_message);
+        if (recomResult.type == "recommendation") {
+          let recomDetail = await new RecommendationDB().read({ _id: recomid })
+          preAssistant["recommendation"] = recomDetail
+          const recomResponseAgent = new RecomResponseAgent();
+          await recomResponseAgent.start(MODEL2, 0.2);
 
-        savedHuman = await MessageFactory
-          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
-          .saveHumanMessage(human_message);
+          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
+          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
+          const mcpResponse = await recomResponseAgent.setRecomResponseContext(
+            userkey,
+            userid,
+            conversationid,
+            {
+              human_message: preHuman, system_message: lastPreAssistant,
+            },
+            { products: recomResult.producsGroup, servces: recomResult.servicesGroup }
+          );
 
-        savedSystem = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
 
-        messageIds.push(savedHuman._id, savedSystem._id);
+          console.log("assistantContent", assistantContent)
+
+          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+            .updateSystemMessage(preAssistant._id, null, assistantContent)
+
+        } else if (recomResult.type == "question") {
+
+          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
+
+          console.log("lastPreAssistant", JSON.stringify(lastPreAssistant))
+
+          const recomResponseAgent = new RecomResponseAgent();
+          await recomResponseAgent.start(MODEL2, 0.2);
+          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
+          const mcpResponse = await recomResponseAgent.setQuestionResponseContext(
+            userkey,
+            userid,
+            conversationid,
+            {
+              human_message: preHuman, system_message: preAssistant,
+            },
+            { questions: lastPreAssistant.recommendation.questions }
+          );
+
+          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+          console.log("assistantContent", assistantContent)
+
+          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+            .updateSystemMessage(preAssistant._id, null, assistantContent)
+        }
+
+
+
         break;
 
       case "services_info":
-        context = await conversationServices.createServiceContext(intent);
-        let systemMessageInfo = await InformationProcessorFactory
-          .getInformationProcessor("services_info", context, null, servicesid, messageGroupid)
+      case "chatabouthservices":
+        console.log("selectedProductid", servicesid)
+        let services = await InformationProcessorFactory
+          .getInformationProcessor("services_info", servicesid, null,)
           .process();
 
-        savedHuman = await MessageFactory
+        const servicesInformationResponseAgent = new InformationResponseAgent();
+        await servicesInformationResponseAgent.start(MODEL2, 0.2);
+        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
           .createMessage("human_message", userid, conversationid, intent, messageGroupid)
           .saveHumanMessage(human_message);
 
-        savedSystem = await MessageFactory
+        preAssistant = await MessageFactory
           .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(system_message_parent_id, context.content.system_message || "");
+          .saveSystemMessage(null, "");
 
-        messageIds.push(savedHuman._id, savedSystem._id);
+        const mcpServicesInfoResponse = await informationResponseAgent.setServicesInformationResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+          services
+        );
+
+        const assistantServicesInfoContent = mcpServicesInfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantServicesInfoContent)
+        break;
+
+      case "production_info":
+      case "chatabouthproduct":
+        console.log("selectedProductid", productid)
+        let product = await InformationProcessorFactory
+          .getInformationProcessor("production_info", productid, null,)
+          .process();
+
+        const informationResponseAgent = new InformationResponseAgent();
+        await informationResponseAgent.start(MODEL2, 0.2);
+        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        preAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
+
+        const mcpinfoResponse = await informationResponseAgent.setProductInformationResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+          product
+        );
+
+        const assistantinfoContent = mcpinfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantinfoContent)
         break;
 
       case "chat":
-        /* context = await conversationServices.createChatContext();
-        if (!context) {
-          console.error("[Conversation] createChatContext null döndü");
-          return res.status(500).json(ApiResponse.error(500, "Chat bağlamı oluşturulamadı."));
-        } */
-
-        // system_message için daha sıkı kontrol
-        //system_message = context.content?.system_message || context.system_message || "Varsayılan sistem mesajı";
 
         const chatResponseAgent = new ChatResponseAgent();
         await chatResponseAgent.start(MODEL2, 0.2);
@@ -165,27 +259,25 @@ const conversation = asyncHandler(async (req, res) => {
 
 
         // Öncelikle Mesajları kaydet
-        const savedHuman = await MessageFactory
+        preHuman = await MessageFactory
           .createMessage("human_message", userid, conversationid, intent, messageGroupid)
           .saveHumanMessage(human_message);
 
-        const savedAssistant = await MessageFactory
+        preAssistant = await MessageFactory
           .createMessage("system_message", userid, conversationid, intent, messageGroupid)
           .saveSystemMessage(null, "");
-
-        messageIds.push(savedHuman._id, savedAssistant._id);
-
 
         const mcpResponse = await chatResponseAgent.getChatResponseContext(
           userkey,
           userid,
           conversationid,
-          { human_message: savedHuman, system_message: savedAssistant },
+          { human_message: preHuman, system_message: preAssistant },
         );
 
         const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
         await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .updateSystemMessage(savedAssistant._id, null, assistantContent)
+          .updateSystemMessage(preAssistant._id, null, assistantContent)
 
         break;
       default:
@@ -193,6 +285,7 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
     // Konuşma güncelleme
+    messageIds.push(preHuman._id, preAssistant._id);
     await dbCon.update({ userid, conversationid }, { messages: messageIds });
 
     // 🧠 Hafıza özeti
@@ -208,12 +301,11 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
     // ✅ Yanıtla
-    const newConversation = await dbCon.read({ userid, conversationid });
+    //const newConversation = await dbCon.read({ userid, conversationid });
 
     return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
       success: true,
       isMemorySaved,
-      //conversation: newConversation
     }));
 
   } catch (error) {

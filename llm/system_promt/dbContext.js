@@ -210,16 +210,16 @@ const servicesDBContext = (limit) => {
 
                         Başlangıç vektör araması:
                         [
-                        {
-                            $vectorSearch: {
-                            index: "tinnten_service_vector_index",
-                            path: "vector",
-                            queryVector: <VECTOR_EMBEDDING>,
-                            numCandidates: 10,
-                            limit: <LIMIT>,
-                            metric: "cosine"
+                            {
+                                $vectorSearch: {
+                                index: "tinnten_service_vector_index",
+                                path: "vector",
+                                queryVector: "VECTOR_EMBEDDING_PLACEHOLDER",
+                                numCandidates: ${limit * 2},
+                                limit: ${limit},
+                                metric: "cosine"
+                                }
                             }
-                        }
                         ]
 
                         ### Sorgulayabileceğin Özellikler:
@@ -244,10 +244,10 @@ const servicesDBContext = (limit) => {
                             // MongoDB aggregate pipeline elemanları burada
                         ]
                         }
-                        <VECTOR_EMBEDDING>: ${vector}
-                        <LIMIT>: ${limit}
+                         - Açıklama veya yorum ekleme.
+                        - VECTOR_EMBEDDING_PLACEHOLDER ve LIMIT_PLACEHOLDER değerlerini değiştirme – sistem sonradan doldurulacaktır.
 
-                        Kullanıcı arama contexti : ${search_context}
+                        ---
                    `
 
 

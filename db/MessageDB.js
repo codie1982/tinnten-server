@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const Message = require("../mongoModels/messageModel"); // Mesaj modelini içe aktar
+const RecommendationDB = require("../db/RecommendationDB"); // Mesaj modelini içe aktar
+
 const BaseDB = require("./BaseDB");
 
 class MessageDB extends BaseDB {
@@ -14,21 +16,20 @@ class MessageDB extends BaseDB {
 
     async read(query) {
         try {
-            return await Message.findOne(query)
-                .populate("productionQuestions")
-                .populate("servicesQuestions")
-                .populate({
-                    path: "systemData.recommendations",
-                    populate: [
-                        { path: "products" },
-                        { path: "services" },
-                        { path: "companies" }
-                    ]
-                });
+            const msg = await Message.findOne(query).lean();
+            if (!msg) throw new Error("Mesaj bulunamadı");
+            // Eğer recommendation varsa detaylandır
+            const recommendationDB = new RecommendationDB();
+            if (msg.recommendation) {
+                msg.recommendation = await recommendationDB.read({ _id: msg.recommendation });
+            }
+            return msg;
+
         } catch (error) {
             throw new Error("MongoDB: Mesaj getirilirken hata oluştu - " + error.message);
         }
     }
+
 
     async update(query, updateData) {
         try {

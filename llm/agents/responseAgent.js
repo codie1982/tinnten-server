@@ -1,4 +1,4 @@
-const BaseAgent = require("./BaseAgent");
+const BaseAgent = require("./BaseAgent.js");
 const { getWSS } = require("../../lib/WSSocket.js");
 
 
@@ -20,17 +20,17 @@ class ResponseAgent extends BaseAgent {
       return;
     }
     const ws = user.socket;
-    if (!ws.isAuthenticated) {
+  /*   if (!ws.isAuthenticated) {
       console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
       return;
-    }
+    } */
     if (ws.readyState !== WebSocket.OPEN) {
       console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
       socketManager.userSockets.delete(userIdStr);
       return;
     }
     ws.send(JSON.stringify({ event: "agent-feedback", data: mcpMessage }));
-    console.log("[ResponseAgent] Stream gönderildi:", userIdStr);
+    //console.log("[ResponseAgent] Stream gönderildi:", userIdStr);
   }
 
   async sendIntentToClient(userid, intent) {
@@ -43,10 +43,10 @@ class ResponseAgent extends BaseAgent {
     }
     const ws = user.socket;
 
-    if (!ws.isAuthenticated) {
+   /*  if (!ws.isAuthenticated) {
       console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
       return;
-    }
+    } */
     if (ws.readyState !== WebSocket.OPEN) {
       console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
       socketManager.userSockets.delete(userIdStr);
@@ -58,17 +58,16 @@ class ResponseAgent extends BaseAgent {
 
   async senSystemMessage(userid, messages) {
     const userIdStr = userid.toString();
-    console.log("[ResponseAgent] Sistem Mesaj Bloğu gönderiliyor:", { userIdStr, messages });
     const user = socketManager.userSockets.get(userIdStr);
     if (!user) {
       console.warn("[ResponseAgent] WebSocket bulunamadı:", userIdStr, "Map:", Array.from(socketManager.userSockets.keys()));
       return;
     }
     const ws = user.socket;
-    if (!ws.isAuthenticated) {
+    /* if (!ws.isAuthenticated) {
       console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
       return;
-    }
+    } */
     if (ws.readyState !== WebSocket.OPEN) {
       console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
       socketManager.userSockets.delete(userIdStr);
@@ -80,13 +79,13 @@ class ResponseAgent extends BaseAgent {
 
   async sendResponseStream(mcpMessage, onTokenCallback) {
     console.log(`[ResponseAgent] MCP stream başlatılıyor, model: ${this.model_name}`);
-    return await this.sendChatCompletionStream(mcpMessage, (token) => {
+    return await this.sendAgentCompletionStream(mcpMessage, (token) => {
       onTokenCallback({ ...token, delta: { ...token.delta, content: token.delta.content } });
     });
   }
 
   async sendResponse(mcpMessage) {
-    return await this.sendChatCompletion(mcpMessage);
+    return await this.sendAgentCompletion(mcpMessage);
   }
 }
 
@@ -221,7 +220,7 @@ module.exports = ResponseAgent;
 
   async sendResponseStream(mcpMessage, onTokenCallback) {
     console.log(`[ResponseAgent] Initiating MCP stream response for model: ${this.model_name}`);
-    return await this.sendChatCompletionStream(mcpMessage, (token) => {
+    return await this.sendAgentCompletionStream(mcpMessage, (token) => {
       // cleanMarkdown kaldırıldı, token.delta.content düz metin olarak gönderiliyor
       onTokenCallback({
         ...token,
@@ -231,7 +230,7 @@ module.exports = ResponseAgent;
   }
 
   async sendResponse(mcpMessage) {
-    return await this.sendChatCompletion(mcpMessage);
+    return await this.sendAgentCompletion(mcpMessage);
   }
 }
  */

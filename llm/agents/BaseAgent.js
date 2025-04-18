@@ -85,7 +85,7 @@ class BaseAgent {
     }
   }
 
-  async sendChatCompletion(mcpMessage) {
+  async sendAgentCompletion(mcpMessage) {
     console.log(`[BaseAgent] Sending MCP chat completion to model: ${this.model_name}`);
 
     if (!this.model) {
@@ -149,7 +149,7 @@ class BaseAgent {
     }
   }
 
-  async sendChatCompletionStream(mcpMessage, onTokenCallback) {
+  async sendAgentCompletionStream(mcpMessage, onTokenCallback) {
     console.log(`[BaseAgent] Sending MCP streaming chat completion to model: ${this.model_name}`);
 
     if (!this.model) {

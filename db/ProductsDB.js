@@ -1,5 +1,10 @@
 const mongoose = require("mongoose");
 const Product = require("../mongoModels/productsModel"); // Ürün modelini içe aktar
+const Variant = require("../mongoModels/variantsModel"); // Ürün modelini içe aktar
+const Price = require("../mongoModels/priceModel"); // Ürün modelini içe aktar
+const Gallery = require("../mongoModels/galleryModel"); // Ürün modelini içe aktar
+const Image = require("../mongoModels/imagesModel"); // Ürün modelini içe aktar
+const CompanyProfile = require("../mongoModels/companyProfilModel"); // Ürün modelini içe aktar
 const BaseDB = require("./BaseDB");
 
 class ProductsDB extends BaseDB {
@@ -14,11 +19,39 @@ class ProductsDB extends BaseDB {
 
     async read(query) {
         try {
-            return await Product.findOne(query)
-                .populate("companyid")
-                .populate("basePrice")
-                .populate("variants")
-                .populate("gallery");
+            const product = await Product.findOne(query).lean();
+            if (!product) throw new Error("Ürün bulunamadı.");
+
+            // 🔹 companyid
+            if (product.companyid) {
+                product.companyid = await CompanyProfile.findById(product.companyid).lean();
+            }
+
+            // 🔹 basePrice (Array)
+            if (product.basePrice?.length > 0) {
+                product.basePrice = await Price.find({ _id: { $in: product.basePrice } }).lean();
+            } else {
+                product.basePrice = [];
+            }
+
+            // 🔹 variants (Array)
+            if (product.variants?.length > 0) {
+                product.variants = await Variant.find({ _id: { $in: product.variants } }).lean();
+            } else {
+                product.variants = [];
+            }
+
+            // 🔹 gallery (ObjectId)
+            if (product.gallery) {
+                const gallery = await Gallery.findById(product.gallery, { description: 0 }).lean();
+                if (gallery?.images?.length > 0) {
+                    gallery.images = await Image.find({ _id: { $in: gallery.images } }).lean();
+                }
+                product.gallery = gallery;
+            }
+
+            return product;
+
         } catch (error) {
             throw new Error("MongoDB: Ürün getirilirken hata oluştu - " + error.message);
         }

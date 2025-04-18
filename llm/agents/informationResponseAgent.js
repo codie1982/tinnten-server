@@ -1,15 +1,15 @@
-const chatResponseContext = require("../system_promt/chatResponseContext");
+const productInformationResponseContext = require("../system_promt/productInformationResponseContext");
+const servicesInformationResponseContext = require("../system_promt/servicesInformationResponseContext");
 const ResponseAgent = require("./responseAgent");
 
 
-class ChatResponseAgent extends ResponseAgent {
+class InformationResponseAgent extends ResponseAgent {
     constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
         super(model, temperature);
     }
-
     // BaseAgent’ın sendAgentCompletionStream’ini override et
     async sendAgentCompletionStream(mcpMessage, onTokenCallback) {
-        console.log(`[ChatResponseAgent] Initiating stream for model: ${this.model_name}`);
+        console.log(`[InformationResponseAgent] Initiating stream for model: ${this.model_name}`);
 
         // Stream API’sini çağır (örneğin, OpenAI veya başka bir model)
         const stream = await this.model.chat.completions.create({
@@ -43,7 +43,7 @@ class ChatResponseAgent extends ResponseAgent {
             }
         }
 
-        console.log("[ChatResponseAgent] Stream completed with reason: stop");
+        console.log("[InformationResponseAgent] Stream completed with reason: stop");
 
         // Final MCP mesajını oluştur
         const finalMessage = this.createMCPMessage(
@@ -62,10 +62,10 @@ class ChatResponseAgent extends ResponseAgent {
         return finalMessage;
     }
 
-    async getChatResponseContext(user, userid, conversationid, messages) {
+    async setProductInformationResponseContext(user, userid, conversationid, messages,product) {
         try {
             let human_message = messages.human_message.content || messages
-            const system_message = await chatResponseContext(user, userid, conversationid, human_message);
+            const system_message = await productInformationResponseContext(user, userid, conversationid, product);
 
             const mcpMessage = this.createMCPMessage(
                 conversationid,
@@ -91,17 +91,73 @@ class ChatResponseAgent extends ResponseAgent {
             await this.senSystemMessage(userid, messages);
 
             const result = await this.sendResponseStream(mcpMessage, async (token) => {
-                //console.log("[ChatResponseAgent] MCP token:", token);
+                //console.log("[InformationResponseAgent] MCP token:", token);
                 await this.sendStreamToClient(userid, token);
             });
 
             // Final sonucu gönder
-            console.log("[ChatResponseAgent] Final Result",result)
+            console.log("[InformationResponseAgent] Final Result",result)
             await this.sendStreamToClient(userid, result);
 
             return result;
         } catch (error) {
-            console.error("[ChatResponseAgent] Error:", error);
+            console.error("[InformationResponseAgent] Error:", error);
+            const errorMessage = this.createMCPMessage(
+                conversationid,
+                [
+                    {
+                        role: "system",
+                        content: "Bağlam oluşturulamadı",
+                        timestamp: new Date().toISOString(),
+                    },
+                ],
+                false,
+                { error: error.message }
+            );
+            await this.sendStreamToClient(userid, errorMessage);
+            return errorMessage;
+        }
+    }
+    async setServicesInformationResponseContext(user, userid, conversationid, messages,services) {
+        try {
+            let human_message = messages.human_message.content || messages
+            const system_message = await servicesInformationResponseContext(user, userid, conversationid, services);
+
+            const mcpMessage = this.createMCPMessage(
+                conversationid,
+                [
+                    {
+                        role: "system",
+                        content: system_message || "Varsayılan sistem mesajı",
+                        timestamp: new Date().toISOString(),
+                    },
+                    {
+                        role: "user",
+                        content: human_message,
+                        timestamp: new Date().toISOString(),
+                    },
+                ],
+                true
+            );
+
+            // Kullanıcı Niyetini Gönder
+            //await this.sendIntentToClient(userid, "chat");
+
+            // Kullanıcı Niyetini Gönder
+            await this.senSystemMessage(userid, messages);
+
+            const result = await this.sendResponseStream(mcpMessage, async (token) => {
+                //console.log("[InformationResponseAgent] MCP token:", token);
+                await this.sendStreamToClient(userid, token);
+            });
+
+            // Final sonucu gönder
+            console.log("[InformationResponseAgent] Final Result",result)
+            await this.sendStreamToClient(userid, result);
+
+            return result;
+        } catch (error) {
+            console.error("[InformationResponseAgent] Error:", error);
             const errorMessage = this.createMCPMessage(
                 conversationid,
                 [
@@ -120,4 +176,4 @@ class ChatResponseAgent extends ResponseAgent {
     }
 }
 
-module.exports = ChatResponseAgent;
+module.exports = InformationResponseAgent;

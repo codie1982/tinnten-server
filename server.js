@@ -24,7 +24,7 @@ const fs = require('fs');
 
 const csv = require('csv-parser');
 
-const ResponseAgent = require("./llm/agents/ResponseAgent");
+const ResponseAgent = require("./llm/agents/responseAgent.js");
 const IntentAgent = require("./llm/agents/intentAgent.js");
 const User = require("./mongoModels/userModel.js")
 

@@ -8,11 +8,12 @@ class IntentAgent extends BaseAgent {
     super(model, temperature);
   }
 
-  async getIntent(user, userid, human_message) {
+  async getIntent(user, human_message) {
     try {
       console.log("[IntentAgent] Fetching intent system prompt...");
+                                                  //user, humanMessage, memory = [], scoped = {}
       const system_message = await intentSystemPromt(user, human_message);
-      console.log("[IntentAgent] Intent context received:", system_message);
+      //console.log("[IntentAgent] Intent context received:", system_message);
 
       // MCP mesajı oluştur
       const mcpMessage = this.createMCPMessage(
@@ -33,7 +34,7 @@ class IntentAgent extends BaseAgent {
       );
 
       console.log("[IntentAgent] Sending MCP chat completion request...");
-      const response = await this.sendChatCompletion(mcpMessage);
+      const response = await this.sendAgentCompletion(mcpMessage);
 
       console.log("[IntentAgent] Completion response received:", response);
 

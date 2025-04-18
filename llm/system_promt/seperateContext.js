@@ -25,16 +25,13 @@ const seperateContext = (productList, search_context) => {
                         ### UYARI:
                         ürünlerin listesinde ana ürün olmayabilir. ozaman Ana ürün listesine bir ürün koymayabilirsin. gerekiyor ise hepsini yan ürün olarak değerlendirebilirsin
 
-                        ### Kullanıcı İsteği:
-                        Kullanıcı isteği : {human_message}
-
                         ### Çıktı Formatı:
 
                         Yalnızca aşağıdaki formatta JSON döndür:
                         ***Json
                         {
-                            mainproductList:[title: "productTitle1", ...}], //Açıklama : Ana ürünlerin listesi
-                            auxiliarymainList:[title: "productTitle1", ...}] //Açıklama : Yan ürünlerin listesi
+                            mainproductList:[{title: "productTitle1","category":"category1"},{title: "productTitle2","category":"category2"}...], //Açıklama : Ana ürünlerin listesi
+                            auxiliarymainList:[{title: "productTitle1","category":"category1"},{title: "productTitle2","category":"category2"}...] //Açıklama : Yan ürünlerin listesi
                         }
                         ---
                         `
