@@ -1,43 +1,49 @@
-const Cost = require("../../lib/cost")
-const summarizeContext = require("../system_promt/summarizeContext")
 const BaseAgent = require("./BaseAgent")
+const summarizeContext = require("../system_promt/summarizeContext")
 
 class SummarizeAgent extends BaseAgent {
     async getSummarize(conversation) {
-        this.context = await summarizeContext(conversation)
-        console.log("context", this.context)
-        const completion = await this.model.chat.completions.create({
-            messages: [{ role: "assistant", content: this.context }],
-            model: this.model_name,
-            temperature: this.temperature,
-            store: true,
-        });
+        try {
+            console.log("[RecomAgent] Fetching intent system prompt...");
+            const system_message = await summarizeContext(conversation);
+            //console.log("[RecomAgent] Intent context received:", system_message);
 
-        let response = completion.choices[0].message.content
-        console.log("response", response)
-        let nCost = new Cost(this.model_name)
-        let calculate = nCost.calculate(completion.usage.prompt_tokens, completion.usage.completion_tokens)
 
-        return {
-            model: completion.model,
-            content: response,
-            finish_reason: completion.choices[0].finish_reason,
-            tokens: {
-                prompt_tokens: completion.usage.prompt_tokens,
-                completion_tokens: completion.usage.completion_tokens,
-                total_tokens: completion.usage.total_tokens,
-            },
-            cost: {
-                promptCost: calculate.promptCost,
-                completionCost: calculate.completionCost,
-                totalCost: calculate.totalCost,
-                unit: "DL"
-            }
+            console.log("[RecomAgent] Sending MCP chat completion request...");
+            // MCP mesajı oluştur
+            const response = await this.sendAgentCompletion(this.createMCPMessage(
+                null, // context_id gerekmiyorsa null, yoksa dinamik atanabilir
+                [
+                    {
+                        role: "system",
+                        content: system_message || "Sen bir akıllı asistansın",
+                        timestamp: new Date().toISOString(),
+                    },
+                    {
+                        role: "user",
+                        content: human_message,
+                        timestamp: new Date().toISOString(),
+                    },
+                ],
+                false // Stream kullanılmıyor
+            ));
+
+            console.log("[RecomAgent] Completion response received:", response);
+
+            // MCP yanıtından içeriği al
+            const rawResponse = response.messages[0].content;
+            console.log("[RecomAgent] Raw response:", rawResponse, typeof rawResponse);
+
+            // JSON’u parse et
+            const parsedResponse = this.cleanJSON(rawResponse);
+            console.log("[RecomAgent] Parsed response:", parsedResponse);
+
+            return parsedResponse;
+        } catch (error) {
+            console.error("[RecomAgent] Recom analiz hatası:", error);
+            return "chat"; // Varsayılan intent, hata durumunda
         }
-    }
-    cleanJSON(responseText) {
-        return responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     }
 }
 
-module.exports = SummarizeAgent
+module.exports = () => new SummarizeAgent();

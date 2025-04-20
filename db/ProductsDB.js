@@ -57,6 +57,17 @@ class ProductsDB extends BaseDB {
         }
     }
 
+    async light(query) {
+        try {
+            const product = await Product.findOne(query).lean();
+            if (!product) throw new Error("Ürün bulunamadı.");
+            return product;
+
+        } catch (error) {
+            throw new Error("MongoDB: Ürün getirilirken hata oluştu - " + error.message);
+        }
+    }
+
     async update(query, updateData) {
         try {
             return await Product.findOneAndUpdate(

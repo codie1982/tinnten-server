@@ -126,4 +126,4 @@ class DBAgent extends BaseAgent {
     }
 }
 
-module.exports = DBAgent
+module.exports =  () => new DBAgent();

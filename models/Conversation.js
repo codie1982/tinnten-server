@@ -12,7 +12,7 @@ class Conversation {
       this.behaviors = data.behaviors || [];
       this.userBehaviorModel = data.userBehaviorModel || "";
       this.context = data.context || "";
-      this.memory = data.memory || "";
+      this.summary = data.summary || "";
       this.status = data.status || "active";
       this.delete = data.delete !== undefined ? data.delete : false;
       this.createdAt = data.createdAt;
@@ -59,8 +59,8 @@ class Conversation {
     return this.context;
   }
 
-  getMemory() {
-    return this.memory;
+  getSummary() {
+    return this.summary;
   }
 
   getStatus() {
@@ -114,8 +114,8 @@ class Conversation {
     this.context = context;
   }
 
-  setMemory(memory) {
-    this.memory = memory;
+  setSummary(summary) {
+    this.summary = summary;
   }
 
   setStatus(status) {

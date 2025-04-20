@@ -62,6 +62,7 @@ class ChatResponseAgent extends ResponseAgent {
         return finalMessage;
     }
 
+   
     async getChatResponseContext(user, userid, conversationid, messages) {
         try {
             let human_message = messages.human_message.content || messages
@@ -88,7 +89,7 @@ class ChatResponseAgent extends ResponseAgent {
             //await this.sendIntentToClient(userid, "chat");
 
             // Kullanıcı Niyetini Gönder
-            await this.senSystemMessage(userid, messages);
+            await this.sendSystemMessage(userid, messages);
 
             const result = await this.sendResponseStream(mcpMessage, async (token) => {
                 //console.log("[ChatResponseAgent] MCP token:", token);

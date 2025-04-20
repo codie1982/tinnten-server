@@ -1,16 +1,12 @@
 const mongoose = require('mongoose');
 const conversationSchema = new mongoose.Schema({
-  conversationid: { type: String, unique: true },                   // Konuşma için benzersiz UUID
+conversationid: { type: String, unique: true },                   // Konuşma için benzersiz UUID
   userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
   title: { type: String, default: "", required: false },
   messages: [
     { type: mongoose.Schema.Types.ObjectId, ref: "message", required: true, default: [] }
   ],                                                        // Mesajlar
-  behaviors: [{ type: mongoose.Schema.Types.ObjectId, ref: "userbehavior", default: [] }],                                                  // Kullanıcı davranışları
-  userBehaviorModel: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
-
-  context: { type: String, default: "" },
-  memory: { type: String, default: "" },                                           // Konuşmanın genel bağlamı
+  summary: { type: String, default: "no summary" },                                           // Konuşmanın genel bağlamı
   status: { type: String, enum: ["active", "completed"], default: "active" },
   delete: { type: Boolean, default: false }
   // Konuşma durumu

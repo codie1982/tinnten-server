@@ -11,70 +11,66 @@ class ResponseAgent extends BaseAgent {
 
   async sendStreamToClient(userid, mcpMessage) {
     const userIdStr = userid.toString();
-    //console.log("[ResponseAgent] Stream gönderiliyor:", { userIdStr });
+    console.log("userIdStr", userIdStr)
+    const user = await socketManager.getUserSocket(userIdStr);
 
-
-    const user = socketManager.userSockets.get(userIdStr);
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket bulunamadı:", userIdStr, "Map:", Array.from(socketManager.userSockets.keys()));
+      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
-    }
+    } ""
+
     const ws = user.socket;
-  /*   if (!ws.isAuthenticated) {
-      console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
-      return;
-    } */
-    if (ws.readyState !== WebSocket.OPEN) {
-      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
-      socketManager.userSockets.delete(userIdStr);
+
+    if (ws.readyState !== 1) { // WebSocket.OPEN
+      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr);
+      await socketManager.deleteUserSocket(userIdStr);
       return;
     }
+
     ws.send(JSON.stringify({ event: "agent-feedback", data: mcpMessage }));
-    //console.log("[ResponseAgent] Stream gönderildi:", userIdStr);
   }
 
   async sendIntentToClient(userid, intent) {
-    const userIdStr = userid
+    const userIdStr = userid.toString();
     console.log("[ResponseAgent] Intent gönderiliyor:", { userIdStr, intent });
-    const user = socketManager.userSockets.get(userIdStr);
+
+    const user = await socketManager.getUserSocket(userIdStr);
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket bulunamadı:", userIdStr, "Map:", Array.from(socketManager.userSockets.keys()));
+      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
     }
+
     const ws = user.socket;
 
-   /*  if (!ws.isAuthenticated) {
-      console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
-      return;
-    } */
-    if (ws.readyState !== WebSocket.OPEN) {
-      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
-      socketManager.userSockets.delete(userIdStr);
+    if (ws.readyState !== 1) {
+      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr);
+      await socketManager.deleteUserSocket(userIdStr);
       return;
     }
+
     ws.send(JSON.stringify({ event: "intent", data: { intent } }));
     console.log("[ResponseAgent] Intent gönderildi:", userIdStr);
   }
 
-  async senSystemMessage(userid, messages) {
+  async sendSystemMessage(userid, messages) {
     const userIdStr = userid.toString();
-    const user = socketManager.userSockets.get(userIdStr);
+    const user = await socketManager.getUserSocket(userIdStr);
+
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket bulunamadı:", userIdStr, "Map:", Array.from(socketManager.userSockets.keys()));
+      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
     }
+
     const ws = user.socket;
-    /* if (!ws.isAuthenticated) {
-      console.warn("[ResponseAgent] WebSocket doğrulanmamış:", userIdStr);
-      return;
-    } */
-    if (ws.readyState !== WebSocket.OPEN) {
-      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr, "readyState:", ws.readyState);
-      socketManager.userSockets.delete(userIdStr);
+
+    if (ws.readyState !== 1) {
+      console.warn("[ResponseAgent] WebSocket kapalı:", userIdStr);
+      await socketManager.deleteUserSocket(userIdStr);
       return;
     }
+
     ws.send(JSON.stringify({ event: "create_message", data: { messages } }));
-    console.log("[ResponseAgent] Intent gönderildi:", userIdStr);
+    console.log("[ResponseAgent] create_message gönderildi:", userIdStr);
   }
 
   async sendResponseStream(mcpMessage, onTokenCallback) {
@@ -88,7 +84,6 @@ class ResponseAgent extends BaseAgent {
     return await this.sendAgentCompletion(mcpMessage);
   }
 }
-
 
 
 module.exports = ResponseAgent;

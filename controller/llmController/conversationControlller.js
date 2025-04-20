@@ -1,38 +1,56 @@
 //General Library
 const asyncHandler = require("express-async-handler");
-const axios = require("axios");
 const { v4: uuidv4 } = require('uuid');
-
 const IntentAgent = require("../../llm/agents/intentAgent.js")
+const { ToolOrchestrator } = require("../../llm/core/ToolOrchestrator.js")
 
-//helper
 const ApiResponse = require("../../helpers/response.js")
 const User = require("../../mongoModels/userModel.js")
-const UserProfil = require("../../mongoModels/userProfilModel.js")
 const Conversation = require("../../models/Conversation")
 const ConversationDB = require("../../db/ConversationMongoDB.js");
 const MessageDB = require("../../db/MessageDB.js");
 const MODEL1 = "gpt-3.5-turbo"
 const MODEL2 = "gpt-4o"
 const Keycloak = require("../../lib/Keycloak.js");
-const ConversationService = require("../../lib/ConversationService.js");
-const MemoryManager = require("../../llm/memory/MemoryManager.js");
 const { MessageFactory } = require("../../lib/message/MessageProcessor.js");
 const QuestionDB = require("../../db/QuestionDB.js");
 const CONSTANT = { active: "active" }
-const RecommendationProcessorFactory = require("../../lib/processor/RecommendationProcessorFactory.js");
-const InformationProcessorFactory = require("../../lib/processor/InformationProcessorFactory.js");
+const GeneralChatResponseAgent = require("../../llm/agents/generalChatResponseAgent.js")
+const ConversationRedisManager = require("../../lib/ConversationRedisManager.js");
+const { getRabbitConnection } = require('../../config/rabbitConnection');
+
+const Joi = require("joi");
+const RedisDBManager = require("../../lib/RedisDB.js");
+const validateRequest = (body) => {
+  const schema = Joi.object({
+    conversationid: Joi.string().uuid().required(),
+    human_message: Joi.string().min(1).required(),
+    productid: Joi.string().allow(null, ""), // ✅ boş string ve null kabul edilir
+    servicesid: Joi.string().allow(null, ""), // ✅
+  });
+  return schema.validate(body);
+};
 
 
-
-const RecommendationAgent = require("../../llm/agents/recommendationAgent.js")
-const ChatResponseAgent = require("../../llm/agents/chatResponseAgent.js")
-const InformationResponseAgent = require("../../llm/agents/informationResponseAgent.js")
-const RecomResponseAgent = require("../../llm/agents/recomResponseAgent.js")
-const ProducInfoResponseAgent = require("../../llm/agents/producInfoResponseAgent.js")
-const server = require("../../server");
-const RecomAgent = require("../../llm/agents/recomAgent.js");
-const RecommendationDB = require("../../db/RecommendationDB.js");
+// MongoDB ObjectId'lerini string'e çevirmek için yardımcı fonksiyon
+const convertObjectIdToString = (obj) => {
+  return JSON.parse(JSON.stringify(obj, (key, value) => {
+    if (value && typeof value === "object" && value._bsontype === "ObjectID") {
+      return value.toString();
+    }
+    return value;
+  }));
+};
+let channel = null; // Global değişken olarak kanal oluştur
+async function getRabbitChannel() {
+  if (!channel) {
+    const connection = await getRabbitConnection();
+    channel = await connection.createChannel();
+    await channel.assertQueue('conversation_queue', { durable: true });
+    console.log("📌 RabbitMQ kanalı oluşturuldu ve kuyruk hazır.");
+  }
+  return channel;
+}
 //privete public
 // @route   POST /api/conversation
 // @desc    Yeni bir konuşma başlatır veya mevcut bir konuşmayı günceller
@@ -43,6 +61,12 @@ const conversation = asyncHandler(async (req, res) => {
 
     const { conversationid, human_message, productid, servicesid } = req.body;
     const access_token = req.kauth?.grant?.access_token?.token;
+    const channel = await getRabbitChannel();
+    // Giriş doğrulama
+    const { error } = validateRequest(req.body);
+    if (error) {
+      return res.status(400).json(ApiResponse.error(400, "Geçersiz giriş", { message: error.message }));
+    }
 
     // 🛡️ Yetkilendirme
     if (!access_token) {
@@ -58,254 +82,173 @@ const conversation = asyncHandler(async (req, res) => {
     }
 
     const userid = user._id;
+
+    const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
     const dbCon = new ConversationDB();
-    const messageIds = [];
 
     // 📁 Konuşma kontrolü
     if (!conversationid) {
       return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
     }
 
-    const conversationDetail = await dbCon.read({ userid, conversationid });
-    if (!conversationDetail) {
-      return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+    let conversationDetail;
+    let conversation;
+
+    if (await manager.isExist(userid, conversationid)) {
+      const detail = await manager.getConversation(userid, conversationid)
+      conversation = new Conversation({
+        ...detail.base, summary: detail.summary, message: detail.messages
+      })
+      console.log("conversation Redis", conversation)
+    } else {
+      conversationDetail = await dbCon.read({ userid, conversationid });
+      console.log("conversationDetail DB", conversationDetail)
+      //Redis'de yoksa detail yeniden redise yazılsın.
+      await manager.setBase(userid, conversationid, new Conversation({
+        _id: conversationDetail._id.toString(),
+        conversationid: conversationid.toString(),
+        userid: userid.toString(),
+        title: conversationDetail.title,
+        status: conversationDetail.status,
+        delete: conversationDetail.delete,
+        createdAt: new Date(conversationDetail.createdAt).getTime(),
+        updatedAt: new Date(conversationDetail.updatedAt).getTime()
+      }), 3600);
+      // Mesajları kaydet
+      await manager.setMessages(userid, conversationid, conversationDetail.messages, 3600);
+      // Memory (konuşma özeti) kaydet
+      await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
+
+      conversation = conversationDetail;
+      if (!conversationDetail) {
+        return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+      }
     }
 
-    const conversation = new Conversation(conversationDetail);
-    if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
+    if ((!conversation.messages || conversation.messages.length === 0) && (!human_message || human_message.trim() === "")) {
       return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
     }
-
     // IntentAgent ile niyet belirleme
     const intentAgent = new IntentAgent();
-    await intentAgent.start(MODEL1, 0.2); // MODEL1 varsayılan
-                                              //user, humanMessage, memory = [], scoped = {}
-    const intent = await intentAgent.getIntent(userkey, human_message,); // Sadece intent döner (ör. "chat")
-    console.log("🎯 [Intent] Belirlenen niyet:", intent);
-
-    const messageGroupid = uuidv4();
-    let context = null;
-    let preHuman, preAssistant;
-    let system_message_parent_id = "";
-
-    // ⚙️ Intent'e göre işlem
-    switch (intent) {
-      case "recommendation":
-        const recomAgent = new RecomAgent();
-        await recomAgent.start(MODEL2, 0.2);
-        console.log("[recomAgent] RecomAgent started successfully");
-        let recomContext = await recomAgent.getRecommendation(userkey, conversationDetail, human_message)
-
-        let processor = await RecommendationProcessorFactory.getRecommendationProcessor(recomContext, human_message);
-        let recomResult = await processor.process();
-
-        let recomid = recomResult.recomid
-
-        // Recommendation Response (mevcut mantık korunuyor)
-        preHuman = await MessageFactory
-          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
-          .saveHumanMessage(human_message);
-
-        let systemMessage = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid);
-
-
-        await systemMessage.setRecommendations(recomResult.recomid);
-        preAssistant = await systemMessage.saveSystemMessage(null, "");
-
-        if (recomResult.type == "recommendation") {
-          let recomDetail = await new RecommendationDB().read({ _id: recomid })
-          preAssistant["recommendation"] = recomDetail
-          const recomResponseAgent = new RecomResponseAgent();
-          await recomResponseAgent.start(MODEL2, 0.2);
-
-          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
-          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
-          const mcpResponse = await recomResponseAgent.setRecomResponseContext(
-            userkey,
-            userid,
-            conversationid,
-            {
-              human_message: preHuman, system_message: lastPreAssistant,
-            },
-            { products: recomResult.producsGroup, servces: recomResult.servicesGroup }
-          );
-
-          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
-
-          console.log("assistantContent", assistantContent)
-
-          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-            .updateSystemMessage(preAssistant._id, null, assistantContent)
-
-        } else if (recomResult.type == "question") {
-
-          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
-
-          console.log("lastPreAssistant", JSON.stringify(lastPreAssistant))
-
-          const recomResponseAgent = new RecomResponseAgent();
-          await recomResponseAgent.start(MODEL2, 0.2);
-          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
-          const mcpResponse = await recomResponseAgent.setQuestionResponseContext(
-            userkey,
-            userid,
-            conversationid,
-            {
-              human_message: preHuman, system_message: preAssistant,
-            },
-            { questions: lastPreAssistant.recommendation.questions }
-          );
-
-          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
-
-          console.log("assistantContent", assistantContent)
-
-          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-            .updateSystemMessage(preAssistant._id, null, assistantContent)
-        }
-
-
-
-        break;
-
-      case "services_info":
-      case "chatabouthservices":
-        console.log("selectedProductid", servicesid)
-        let services = await InformationProcessorFactory
-          .getInformationProcessor("services_info", servicesid, null,)
-          .process();
-
-        const servicesInformationResponseAgent = new InformationResponseAgent();
-        await servicesInformationResponseAgent.start(MODEL2, 0.2);
-        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
-
-        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
-        //500ms bekleyelim. Sonra Stream'e başlasın. 
-        // Extra bir response dönmemize gerek yok. 
-
-
-        // Öncelikle Mesajları kaydet
-        preHuman = await MessageFactory
-          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
-          .saveHumanMessage(human_message);
-
-        preAssistant = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(null, "");
-
-        const mcpServicesInfoResponse = await informationResponseAgent.setServicesInformationResponseContext(
-          userkey,
-          userid,
-          conversationid,
-          { human_message: preHuman, system_message: preAssistant },
-          services
-        );
-
-        const assistantServicesInfoContent = mcpServicesInfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
-
-        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .updateSystemMessage(preAssistant._id, null, assistantServicesInfoContent)
-        break;
-
-      case "production_info":
-      case "chatabouthproduct":
-        console.log("selectedProductid", productid)
-        let product = await InformationProcessorFactory
-          .getInformationProcessor("production_info", productid, null,)
-          .process();
-
-        const informationResponseAgent = new InformationResponseAgent();
-        await informationResponseAgent.start(MODEL2, 0.2);
-        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
-
-        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
-        //500ms bekleyelim. Sonra Stream'e başlasın. 
-        // Extra bir response dönmemize gerek yok. 
-
-
-        // Öncelikle Mesajları kaydet
-        preHuman = await MessageFactory
-          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
-          .saveHumanMessage(human_message);
-
-        preAssistant = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(null, "");
-
-        const mcpinfoResponse = await informationResponseAgent.setProductInformationResponseContext(
-          userkey,
-          userid,
-          conversationid,
-          { human_message: preHuman, system_message: preAssistant },
-          product
-        );
-
-        const assistantinfoContent = mcpinfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
-
-        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .updateSystemMessage(preAssistant._id, null, assistantinfoContent)
-        break;
-
-      case "chat":
-
-        const chatResponseAgent = new ChatResponseAgent();
-        await chatResponseAgent.start(MODEL2, 0.2);
-        console.log("[Conversation] ChatResponseAgent started successfully");
-
-        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
-        //500ms bekleyelim. Sonra Stream'e başlasın. 
-        // Extra bir response dönmemize gerek yok. 
-
-
-        // Öncelikle Mesajları kaydet
-        preHuman = await MessageFactory
-          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
-          .saveHumanMessage(human_message);
-
-        preAssistant = await MessageFactory
-          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .saveSystemMessage(null, "");
-
-        const mcpResponse = await chatResponseAgent.getChatResponseContext(
-          userkey,
-          userid,
-          conversationid,
-          { human_message: preHuman, system_message: preAssistant },
-        );
-
-        const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
-
-        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
-          .updateSystemMessage(preAssistant._id, null, assistantContent)
-
-        break;
-      default:
-        return res.status(500).json(ApiResponse.error(500, "Bilinmeyen intent."));
+    try {
+      await intentAgent.start(MODEL2, 0.2);
+    } catch (error) {
+      console.error("[IntentAgent] Start error:", error);
+      return res.status(503).json(ApiResponse.error(503, "Niyet belirleme servisi kullanılamıyor"));
     }
+    console.log("conversation.messages", conversation.messages)
+    const intents = await intentAgent.getIntent(userkey, human_message, conversation.messages, {
+      selectedProduct: productid || {},
+      selectedservices: servicesid || {},
+    });
 
-    // Konuşma güncelleme
-    messageIds.push(preHuman._id, preAssistant._id);
-    await dbCon.update({ userid, conversationid }, { messages: messageIds });
+    // ToolOrchestrator
+    const orchestrator = new ToolOrchestrator();
+    const messageGroupid = uuidv4();
+    const ctx = {
+      context_id: uuidv4(),
+      human_message,
+      user_id: userid,
+      productid,
+      servicesid,
+      conversation_memory: conversation.memory || "",
+      conversation_history: conversation.messages || [],
+    };
+    const orchestratorResponse = await orchestrator.executeIntents(intents, ctx);
+    console.log("\n🟢  ORCHESTRATOR RESPONSE:\n", JSON.stringify(orchestratorResponse, null, 2));
 
-    // 🧠 Hafıza özeti
-    let isMemorySaved = false;
-    if (true) {
-      const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
+    // GeneralChatResponseAgent ile yanıt üret
+    const generalChatResponseAgent = new GeneralChatResponseAgent();
+    await generalChatResponseAgent.start(MODEL2, 0.2);
+    console.log("[GeneralChatResponseAgent] GeneralChatResponseAgent started successfully");
+
+    // Mesajları kaydet
+    //Redis konuşmaya Ekle
+
+    const preHuman = await MessageFactory
+      .createMessage("human_message", userid, conversationid, "general", messageGroupid)
+      .saveHumanMessage(human_message);
+
+    await manager.addMessages(userid, conversationid, preHuman)
+    console.log("preHuman", preHuman)
+
+    //Redis konuşmaya Ekle
+    const preAssistant = await MessageFactory
+      .createMessage("system_message", userid, conversationid, "general", messageGroupid)
+      .saveSystemMessage(null, "");
+
+    console.log("preAssistant", preAssistant)
+    await manager.addMessages(userid, conversationid, preAssistant)
+
+    const mcpResponse = await generalChatResponseAgent.getChatResponseContext(
+      userkey,
+      userid,
+      conversationid,
+      { human_message: preHuman, system_message: preAssistant },
+      conversation.memory || "",
+      orchestratorResponse
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms gecikme
+
+    if (!mcpResponse.messages[0]?.content) {
+      return res.status(500).json(ApiResponse.error(500, "Yanıt oluşturulamadı", { message: "GeneralChatResponseAgent yanıtı üretemedi" }));
+    }
+    const assistantContent = mcpResponse.messages[0].content;
+
+    //Sistem mesajını güncelle
+    //Rabbit ile güncelle
+    //Redis ile canlıda güncelle
+
+    await MessageFactory.selectedMessage("system_message", userid, conversationid, "general", messageGroupid)
+      .updateSystemMessage(preAssistant._id, null, assistantContent);
+
+    await manager.updateMessages(userid, conversationid, preAssistant._id, {
+      ...preAssistant,
+      content: assistantContent
+    });
+
+    // Konuşma ve hafıza güncelleme
+    const messageIds = [preHuman._id, preAssistant._id];
+    let isSummarySaved = false;
+    let memoryUpdate = {};
+
+    if (conversation.messages.length >= 3) {
+      const message = {
+        type: 'conversation-summary',
+        data: { conversation, human_message: preHuman, system_message: preAssistant },
+        content: { userid: userid, conversationid: conversationid }
+      };
+      channel.sendToQueue('conversation_queue', Buffer.from(JSON.stringify(message)), { persistent: true });
+      //Rabbit ile özeti çıkar ve konuşmayı güncelle
+
+      /* const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
       const memoryManager = new MemoryManager();
       memoryManager.loadMemory(tempConv);
-
       const summary = await memoryManager.getSummarizedForMemory();
-      await dbCon.update({ userid, conversationid }, { memory: summary.content });
-      isMemorySaved = true;
+      memoryUpdate.memory = summary.content;
+      isMemorySaved = true; */
     }
+    // Konuşma güncelleme
 
-    // ✅ Yanıtla
-    //const newConversation = await dbCon.read({ userid, conversationid });
+
+    //Redis ten konuşmayı
+
+
+    //await manager.updateMessages(userid, conversationid, messageid)
+
+
+    const message = {
+      type: 'update',
+      data: { messages: messageIds },
+      content: { userid: userid, conversationid: conversationid }
+    };
+    //DB'yi Rabbit ile conversation güncelle
+    channel.sendToQueue('conversation_queue', Buffer.from(JSON.stringify(message)), { persistent: true });
 
     return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
       success: true,
-      isMemorySaved,
+      isSummarySaved,
     }));
 
   } catch (error) {
@@ -316,8 +259,6 @@ const conversation = asyncHandler(async (req, res) => {
     }));
   }
 });
-
-
 const answer = asyncHandler(async (req, res) => {
   const { id, answer } = req.body;
   const questionid = id;
@@ -399,11 +340,9 @@ const create = asyncHandler(async (req, res) => {
     return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı" }));
   }
   const userid = user._id;
-
   try {
-    // Benzersiz bir conversationid oluştur
-
-
+    // Yeni bir Conversation REdis oluştur
+    const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
     // **Yeni konuşma başlat**
     let nConversation = new Conversation();
     let conversationid = uuidv4()
@@ -412,10 +351,25 @@ const create = asyncHandler(async (req, res) => {
     const conversation = await new ConversationDB().create(nConversation)
     // Konuşmayı kaydet
     if (conversation) {
-      return res.status(200).json(ApiResponse.success(200, "Konuşma başlatıldı", {
-        message: "Konuşma başlatıldı",
-        conversationid: nConversation.conversationid,
-      }));
+      let TTL = 3600
+      // Redis'te yoksa, verileri kaydet
+      await manager.setBase(userid, conversationid, new Conversation({
+        _id: conversation._id.toString(),
+        conversationid: conversationid.toString(),
+        userid: userid.toString(),
+        title: "",
+        status: conversation.status,
+        delete: conversation.delete,
+        createdAt: new Date(conversation.createdAt).getTime(),
+        updatedAt: new Date(conversation.updatedAt).getTime()
+      }), TTL);
+
+      // Mesajları kaydet
+      await manager.setMessages(userid, conversationid, [], TTL);
+      // Memory (konuşma özeti) kaydet
+      await manager.setSummary(userid, conversationid, { summary: "no summary" }, TTL);
+
+      return res.status(200).json(ApiResponse.success(200, "Konuşma başlatıldı", { conversationid }));
     } else {
       return res.status(500).json(ApiResponse.error(500, "Konuşma başlatılamadı", { message: "Konuşma oluşturulurken bir hata oluştu" }));
     }
@@ -427,13 +381,14 @@ const create = asyncHandler(async (req, res) => {
 //privete public
 const detail = asyncHandler(async (req, res) => {
   const { conversationid } = req.params;
-
+  let responseData;
   if (!conversationid) {
     return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", { message: "Geçerli bir konuşma ID'si sağlamalısınız" }));
   }
-
+  // Redis manager'ı başlat
+  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
   try {
-    // 🔑 **Kullanıcı Yetkilendirme Kontrolü**
+    // Kullanıcı yetkilendirme kontrolü
     const access_token = req.kauth?.grant?.access_token?.token;
     if (!access_token) {
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", { message: "Token bulunamadı veya geçersiz." }));
@@ -445,51 +400,159 @@ const detail = asyncHandler(async (req, res) => {
     if (!user) {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
     }
-    let userid = user._id
-    console.log("userid", userid)
-    const conDb = new ConversationDB()
-    // 🗂 **Konuşmayı Veri Tabanından Getir**
-    const _conversation = await conDb.read({ userid, conversationid })
-    // 🚨 **Hatalı veya Geçersiz Konuşma Kontrolü**
-    if (!_conversation) {
-      return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
+    const userid = user._id;
+    let fromRedis;
+    const existingBase = await manager.getBase(userid, conversationid);
+    if (existingBase) {
+      fromRedis = true;
+      const redisData = await manager.getConversation(userid, conversationid)
+      responseData = new Conversation({
+        ...redisData.base, summary: redisData.summary, messages: redisData.messages
+      })
+
+      console.log("responseData FromRedis", redisData.messages)
+    } else {
+      fromRedis = false;
+      // Redis'te yoksa, MongoDB'den al
+      const conDb = new ConversationDB();
+      const conversatinDetail = await conDb.read({ userid, conversationid });
+
+      if (!conversatinDetail) {
+        return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
+      }
+      const conversationDetail = await conDb.read({ _id: conversation._id })
+      // Veri doğrulama
+      if (!conversationDetail) {
+        console.error(`[detail] Eksik veri: userid veya conversationid eksik`, conv);
+        return res.status(500).json(ApiResponse.error(500, "Konuşma verisi geçersiz", { message: "Konuşma verisi işlenemedi." }));
+      }
+
+      // Redis'e verileri kaydet
+      await manager.setBase(userid, conversationid, new Conversation({
+        _id: conversationDetail._id.toString(),
+        conversationid: conversationDetail.conversationid.toString(),
+        userid: conversationDetail.userid.toString(),
+        title: conversationDetail.title,
+        status: conversationDetail.status,
+        delete: conversationDetail.delete,
+        createdAt: new Date(conversationDetail.createdAt).getTime(),
+        updatedAt: new Date(conversationDetail.updatedAt).getTime()
+      }), 3600);
+      // Mesajları kaydet
+      await manager.setMessages(userid, conversationid, conversationDetail.messages || [], 3600);
+      // Memory (konuşma özeti) kaydet
+      await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
+
+      console.log(`[detail] Konuşma ${conversatinDetail.conversationid} Redis'e kaydedildi.`);
+      // Yanıt için veriyi hazırla
+      responseData = conversatinDetail
     }
 
-    // 🆗 **Başarıyla Konuşmayı Döndür**
-    return res.status(200).json(ApiResponse.success(200, "Konuşma detayı", {
-      conversation: _conversation, // ✅ JSON formatında göndermek için değişken adı düzeltildi
-    }));
-
+    // Başarıyla konuşmayı döndür
+    return res.status(200).json(
+      ApiResponse.success(200, "Konuşma detayı", {
+        conversation: responseData,
+        fromRedis
+      })
+    );
   } catch (error) {
-    console.error("Conversation Detail Error:", error.message);
-    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+    manager.disconnect()
+    console.error("[detail] Conversation Detail Error:", error.message);
+    return res.status(500).json(
+      ApiResponse.error(500, "Sunucu hatası", { message: "Sunucu hatası, lütfen tekrar deneyin" })
+    );
   }
 });
+
 //privete public
 const historyies = asyncHandler(async (req, res) => {
   const access_token = req.kauth.grant.access_token.token;
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
+
+  if (!user) {
+    return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Kullanıcı bilgileri geçersiz" }));
+  }
+  const userid = user._id
+  // Redis manager'ı başlat
+  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
   try {
-    // Retrieve page query parameter, default to page 1
+
+    // Sayfalama parametrelerini al
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 5;
     const conDb = new ConversationDB();
 
-    // Use readPaginated to get paged conversations.
-    // Assume readPaginated returns an object with 'data' and 'totalCount'
-    const historyList = await conDb.getHistoryList({ userid: user._id, status: CONSTANT.active, delete: false }, page, limit);
-    const totalCount = await conDb.gettotalCount({ userid: user._id, status: CONSTANT.active, delete: false })
-
-    return res.status(200).json(ApiResponse.success(200, "Konuşma geçmişi", {
-      history: historyList,
+    // MongoDB'den konuşma geçmişini al
+    const conversations = await conDb.readMany(
+      { userid: user._id, status: CONSTANT.active, delete: false },
       page,
-      totalCount
-    }));
+      limit
+    );
+    const totalCount = await conDb.gettotalCount({
+      userid: user._id,
+      status: CONSTANT.active,
+      delete: false,
+    });
 
+
+    // Redis'e veri aktarımı
+    for (const conversation of conversations) {
+      // Veri doğrulama
+      const { conversationid } = conversation
+      if (!userid || !conversationid) {
+        console.warn(`[historyies] Eksik veri: userid veya conversationid eksik`, conversation);
+        continue; // Eksik veri varsa bu konuşmayı atla
+      }
+
+      // Redis'te base verisi var mı kontrol et
+      const existingBase = await manager.getBase(userid, conversationid);
+      if (!existingBase) {
+        const conversationDetail = await conDb.read({ _id: conversation._id })
+        // Redis'te yoksa, verileri kaydet
+        await manager.setBase(userid, conversationid, new Conversation({
+          _id: conversationDetail._id.toString(),
+          conversationid: conversationDetail.conversationid.toString(),
+          userid: conversationDetail.userid.toString(),
+          title: conversationDetail.title,
+          status: conversationDetail.status,
+          delete: conversationDetail.delete,
+          createdAt: new Date(conversationDetail.createdAt).getTime(),
+          updatedAt: new Date(conversationDetail.updatedAt).getTime()
+        }), 3600);
+        // Mesajları kaydet
+        await manager.setMessages(userid, conversationid, conversationDetail.messages || [], 3600);
+        // Memory (konuşma özeti) kaydet
+        await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
+
+        console.log(`[historyies] Konuşma ${conversationid} Redis'e kaydedildi.`);
+      } else {
+        console.log(`[historyies] Konuşma ${conversationid} zaten Redis'te mevcut.`);
+      }
+    }
+
+    // Başarılı yanıt döndür
+    return res.status(200).json(
+      ApiResponse.success(200, "Konuşma geçmişi", {
+        history: conversations.map((conv) => {
+          const { title, conversationid } = convertObjectIdToString(conv);
+          return {
+            title: title || "", // title undefined ise boş string
+            conversationid: conversationid,
+          };
+        }),
+        page,
+        totalCount,
+      })
+    );
   } catch (error) {
-    console.error("Login Error:", error.response?.data || error);
-    return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+    console.error("[historyies] Hata:", error.response?.data || error);
+    manager.disconnect()
+    return res.status(500).json(
+      ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, {
+        message: "Sunucu hatası, lütfen tekrar deneyin",
+      })
+    );
   }
 });
 
@@ -498,6 +561,7 @@ const deleteConversation = asyncHandler(async (req, res) => {
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
   const { conversationid } = req.query;
+  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
   try {
     const conDb = new ConversationDB();
     // Use readPaginated to get paged conversations.
@@ -506,13 +570,16 @@ const deleteConversation = asyncHandler(async (req, res) => {
       return res.status(404).json(ApiResponse.error(404, "Konuşma bulunamadı", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
     }
     // Silme işlemi
-    await conDb.delete({ userid: user._id, status: CONSTANT.active, delete: false, conversationid });
-
+    const isDeleted = await conDb.delete({ userid: user._id, status: CONSTANT.active, delete: false, conversationid });
+    if (isDeleted) {
+      await manager.deleteAll(userid, conversationid)
+    }
     return res.status(200).json(ApiResponse.success(200, "Konuşma Silindi", {
       conversationid,
     }));
 
   } catch (error) {
+
     console.error("Login Error:", error.response?.data || error);
     return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
   }
@@ -575,8 +642,6 @@ const search = asyncHandler(async (req, res) => {
     return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
   }
 });
-
-
 
 module.exports = {
   create, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion, search
@@ -1185,6 +1250,322 @@ const conversation = asyncHandler(async (req, res) => {
     console.error("[Conversation] Error occurred:", error);
     return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
       success: false,
+      message: "Konuşma oluşturulurken hata oluştu.",
+      error: error.message
+    }));
+  }
+});
+ */
+
+
+
+/**
+ * const conversation = asyncHandler(async (req, res) => {
+  try {
+    console.log("💬 [Conversation] Yeni istek alındı:", req.body);
+
+    const { conversationid, human_message, productid, servicesid } = req.body;
+    const access_token = req.kauth?.grant?.access_token?.token;
+
+    // 🛡️ Yetkilendirme
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
+    const userid = user._id;
+    const dbCon = new ConversationDB();
+    const messageIds = [];
+
+    // 📁 Konuşma kontrolü
+    if (!conversationid) {
+      return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
+    }
+
+    const conversationDetail = await dbCon.read({ userid, conversationid });
+    if (!conversationDetail) {
+      return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+    }
+
+    const conversation = new Conversation(conversationDetail);
+    if (conversation.messages.length === 0 && (!human_message || human_message.trim() === "")) {
+      return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
+    }
+
+    // IntentAgent ile niyet belirleme
+    const intentAgent = new IntentAgent();
+    await intentAgent.start(MODEL1, 0.2); // MODEL1 varsayılan
+                                              //user, humanMessage, memory = [], scoped = {}
+    const intent = await intentAgent.getIntent(userkey, human_message,); // Sadece intent döner (ör. "chat")
+    console.log("🎯 [Intent] Belirlenen niyet:", intent);
+
+    const messageGroupid = uuidv4();
+    let context = null;
+    let preHuman, preAssistant;
+    let system_message_parent_id = "";
+
+    // ⚙️ Intent'e göre işlem
+    switch (intent) {
+      case "recommendation":
+        const recomAgent = new RecomAgent();
+        await recomAgent.start(MODEL2, 0.2);
+        console.log("[recomAgent] RecomAgent started successfully");
+        let recomContext = await recomAgent.getRecommendation(userkey, conversationDetail, human_message)
+
+        let processor = await RecommendationProcessorFactory.getRecommendationProcessor(recomContext, human_message);
+        let recomResult = await processor.process();
+
+        let recomid = recomResult.recomid
+
+        // Recommendation Response (mevcut mantık korunuyor)
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        let systemMessage = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid);
+
+
+        await systemMessage.setRecommendations(recomResult.recomid);
+        preAssistant = await systemMessage.saveSystemMessage(null, "");
+
+        if (recomResult.type == "recommendation") {
+          let recomDetail = await new RecommendationDB().read({ _id: recomid })
+          preAssistant["recommendation"] = recomDetail
+          const recomResponseAgent = new RecomResponseAgent();
+          await recomResponseAgent.start(MODEL2, 0.2);
+
+          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
+          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
+          const mcpResponse = await recomResponseAgent.setRecomResponseContext(
+            userkey,
+            userid,
+            conversationid,
+            {
+              human_message: preHuman, system_message: lastPreAssistant,
+            },
+            { products: recomResult.producsGroup, servces: recomResult.servicesGroup }
+          );
+
+          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+          console.log("assistantContent", assistantContent)
+
+          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+            .updateSystemMessage(preAssistant._id, null, assistantContent)
+
+        } else if (recomResult.type == "question") {
+
+          let lastPreAssistant = await new MessageDB().read({ _id: preAssistant._id })
+
+          console.log("lastPreAssistant", JSON.stringify(lastPreAssistant))
+
+          const recomResponseAgent = new RecomResponseAgent();
+          await recomResponseAgent.start(MODEL2, 0.2);
+          console.log("[RecomResponseAgent] RecomResponseAgent started successfully");
+          const mcpResponse = await recomResponseAgent.setQuestionResponseContext(
+            userkey,
+            userid,
+            conversationid,
+            {
+              human_message: preHuman, system_message: preAssistant,
+            },
+            { questions: lastPreAssistant.recommendation.questions }
+          );
+
+          const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+          console.log("assistantContent", assistantContent)
+
+          await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+            .updateSystemMessage(preAssistant._id, null, assistantContent)
+        }
+
+
+
+        break;
+
+      case "services_info":
+      case "chatabouthservices":
+        console.log("selectedProductid", servicesid)
+        let services = await InformationProcessorFactory
+          .getInformationProcessor("services_info", servicesid, null,)
+          .process();
+
+        const servicesInformationResponseAgent = new InformationResponseAgent();
+        await servicesInformationResponseAgent.start(MODEL2, 0.2);
+        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        preAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
+
+        const mcpServicesInfoResponse = await informationResponseAgent.setServicesInformationResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+          services
+        );
+
+        const assistantServicesInfoContent = mcpServicesInfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantServicesInfoContent)
+        break;
+
+      case "production_info":
+      case "chatabouthproduct":
+        console.log("selectedProductid", productid)
+        let product = await InformationProcessorFactory
+          .getInformationProcessor("production_info", productid, null,)
+          .process();
+
+        const informationResponseAgent = new InformationResponseAgent();
+        await informationResponseAgent.start(MODEL2, 0.2);
+        console.log("[InformationResponseAgent] InformationResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        preAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
+
+        const mcpinfoResponse = await informationResponseAgent.setProductInformationResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+          product
+        );
+
+        const assistantinfoContent = mcpinfoResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantinfoContent)
+        break;
+
+      case "chat":
+
+        const chatResponseAgent = new ChatResponseAgent();
+        await chatResponseAgent.start(MODEL2, 0.2);
+        console.log("[Conversation] ChatResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        preAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
+
+        const mcpResponse = await chatResponseAgent.getChatResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+        );
+
+        const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantContent)
+
+        break;
+      default:
+        return res.status(500).json(ApiResponse.error(500, "Bilinmeyen intent."));
+    }
+
+
+
+
+    const generalChatResponseAgent = new GeneralChatResponseAgent();
+        await generalChatResponseAgent.start(MODEL2, 0.2);
+        console.log("[GeneralChatResponseAgent] GeneralChatResponseAgent started successfully");
+
+        //Yeni mesajı bilgilerini öncesinde oluştururm cliente iletelim. 
+        //500ms bekleyelim. Sonra Stream'e başlasın. 
+        // Extra bir response dönmemize gerek yok. 
+
+
+        // Öncelikle Mesajları kaydet
+        preHuman = await MessageFactory
+          .createMessage("human_message", userid, conversationid, intent, messageGroupid)
+          .saveHumanMessage(human_message);
+
+        preAssistant = await MessageFactory
+          .createMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .saveSystemMessage(null, "");
+
+        const mcpResponse = await generalChatResponseAgent.getChatResponseContext(
+          userkey,
+          userid,
+          conversationid,
+          { human_message: preHuman, system_message: preAssistant },
+        );
+
+        const assistantContent = mcpResponse.messages[0]?.content || "Yanıt oluşturulamadı";
+
+        await MessageFactory.selectedMessage("system_message", userid, conversationid, intent, messageGroupid)
+          .updateSystemMessage(preAssistant._id, null, assistantContent)
+    // Konuşma güncelleme
+    messageIds.push(preHuman._id, preAssistant._id);
+    await dbCon.update({ userid, conversationid }, { messages: messageIds });
+
+    // 🧠 Hafıza özeti
+    let isMemorySaved = false;
+    if (true) {
+      const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
+      const memoryManager = new MemoryManager();
+      memoryManager.loadMemory(tempConv);
+
+      const summary = await memoryManager.getSummarizedForMemory();
+      await dbCon.update({ userid, conversationid }, { memory: summary.content });
+      isMemorySaved = true;
+    }
+
+    // ✅ Yanıtla
+    //const newConversation = await dbCon.read({ userid, conversationid });
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
+      success: true,
+      isMemorySaved,
+    }));
+
+  } catch (error) {
+    console.error("🔥 [Conversation] Hata:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
       message: "Konuşma oluşturulurken hata oluştu.",
       error: error.message
     }));

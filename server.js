@@ -8,6 +8,8 @@ const { ObjectId } = require("mongodb");
 const http = require('http');
 const { connectDB } = require("./config/db")
 const cookieParser = require('cookie-parser');
+const Redis = require("ioredis");
+
 
 const { errorHandler } = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
@@ -19,13 +21,8 @@ const socketManager = require("./lib/SocketManager.js");
 const cors = require('cors');
 const { SitemapStream, streamToPromise } = require('sitemap');
 const { createGzip } = require('zlib');
-
 const fs = require('fs');
-
 const csv = require('csv-parser');
-
-const ResponseAgent = require("./llm/agents/responseAgent.js");
-const IntentAgent = require("./llm/agents/intentAgent.js");
 const User = require("./mongoModels/userModel.js")
 
 
@@ -36,7 +33,6 @@ const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
 const server = http.createServer(app);
-
 
 const wss = initSocket(server);
 if (!wss) {
@@ -68,24 +64,23 @@ wss.on("connection", async (ws, req) => {
     }
 
     const userid = user._id.toString();
-    console.log(`[server.js] Kullanıcı bağlandı: ${userid}`);
     ws.userid = userid;
     ws.isAuthenticated = false;
-    socketManager.userSockets.set(userid, { socket: ws, userid });
-    console.log("[server.js] userSockets'a eklendi:", userid, "Map:", Array.from(socketManager.userSockets.keys()).length);
-    console.log("[server.js] Sistemte : ", " ", socketManager.userSockets.size, " ", "Kişi var");
 
-    ws.on("message", (message) => {
+    await socketManager.setUserSocket(userid, ws);
+
+    console.log(`[server.js] Kullanıcı bağlandı: ${userid}`);
+
+    ws.on("message", async (message) => {
       try {
         const { event, data: payload } = JSON.parse(message);
         console.log("[server.js] Mesaj alındı:", { event, payload, userid });
 
         if (event === "identify") {
-          const receivedUserid = payload.userid
+          const receivedUserid = payload.userid;
           if (receivedUserid && receivedUserid === ws.userid) {
-            ws.isAuthenticated = true;
-            socketManager.userSockets.set(userid, { socket: ws, userid }); // Güncelle
-            console.log(`[server.js] Kullanıcı doğrulandı: ${ws.userid}, isAuthenticated: ${ws.isAuthenticated}`);
+            await socketManager.updateUserAuth(userid, true);
+            console.log(`[server.js] Kullanıcı doğrulandı: ${userid}`);
             ws.send(JSON.stringify({ event: "identify_success", data: { message: "Doğrulama başarılı" } }));
           } else {
             console.error("[server.js] Geçersiz userid:", { received: payload.userid, expected: ws.userid });
@@ -104,16 +99,14 @@ wss.on("connection", async (ws, req) => {
       }
     });
 
-    ws.on("close", (code) => {
+    ws.on("close", async (code) => {
       console.log(`[server.js] Kullanıcı ayrıldı: ${userid}, Kod: ${code}`);
-      socketManager.userSockets.delete(userid);
-      console.log("[server.js] userSockets'tan silindi:", userid, "Map:", Array.from(socketManager.userSockets.keys()));
+      await socketManager.deleteUserSocket(userid);
     });
 
-    ws.on("error", (error) => {
+    ws.on("error", async (error) => {
       console.error("[server.js] WebSocket hatası:", error.message, "from:", userid);
-      socketManager.userSockets.delete(userid);
-      console.log("[server.js] userSockets'tan silindi (hata):", userid, "Map:", Array.from(socketManager.userSockets.keys()));
+      await socketManager.deleteUserSocket(userid);
     });
   } catch (error) {
     console.error("[server.js] Token doğrulama hatası:", error.message);
@@ -125,7 +118,7 @@ wss.on("connection", async (ws, req) => {
 wss.on("error", (error) => {
   console.error("[server.js] WebSocket server hatası:", error);
 });
-const responseAgent = new ResponseAgent();
+
 
 
 app.use(

@@ -23,8 +23,18 @@ class ConversationMongoDB extends BaseDB {
     }
     async find(query) {
         try {
-            const result = await Conversation.find(query)
-            return result; // Eğer sonuç varsa ilkini döndür
+            const conversation = await Conversation.find(query).lean();
+            if (!conversation) throw new Error("Conversation not found.");
+
+            // 💬 Tüm mesajları MessageDB üzerinden oku (her biri recommendation içeriğiyle birlikte gelir)
+            const messageDB = new MessageDB()
+            const messages = await Promise.all(
+                conversation.messages.map(id =>
+                    messageDB.read({ _id: id }) 
+                )
+            );
+            conversation.messages = messages;
+            return conversation;
         } catch (error) {
             throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
         }
@@ -42,10 +52,8 @@ class ConversationMongoDB extends BaseDB {
                     messageDB.read({ _id: id })  // burada `read()` fonksiyonu recommendation'ları hydrate eder
                 )
             );
-
             conversation.messages = messages;
             return conversation;
-
         } catch (error) {
             throw new Error(
                 "MongoDB: Konuşma getirilirken hata oluştu - " +
@@ -58,9 +66,16 @@ class ConversationMongoDB extends BaseDB {
 
 
 
-    async readMany(query) {
+    async readMany(query, page = 1, limit = 10) {
         try {
+            let skip = (page - 1) * limit
             const result = await Conversation.find(query)
+                .sort({ "createdAt": -1 })
+                .limit(limit)
+                .skip(skip)
+
+
+                
             return result; // Eğer sonuç varsa ilkini döndür
         } catch (error) {
             throw new Error(
@@ -131,11 +146,12 @@ class ConversationMongoDB extends BaseDB {
 
     async delete(query) {
         try {
-            return await Conversation.findOneAndUpdate(
+            const result = await Conversation.findOneAndUpdate(
                 query,
                 { $set: { delete: true } },
                 { new: true }
             );
+            return result ? true : false;
         } catch (error) {
             throw new Error("MongoDB: Konuşma silinirken hata oluştu - " + error.message);
         }

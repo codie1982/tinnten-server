@@ -1,4 +1,4 @@
-const Cost = require("../../lib/cost")
+
 const { questionContext } = require("../system_promt/questionContext")
 const BaseAgent = require("./BaseAgent")
 
@@ -45,4 +45,4 @@ class QuestionAgent extends BaseAgent {
       }
 }
 
-module.exports = QuestionAgent
+module.exports = () => new QuestionAgent();

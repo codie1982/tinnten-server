@@ -1,10 +1,99 @@
 
-const intentSystemPromt = (user, humanMessage, memory = [], scoped = {}) => {
+const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
     return new Promise((resolve, reject) => {
-        const recent = memory.slice(-3)
+        const recent = memory.slice(-6)
             .map(m => `${m.role}: ${m.content}`)
             .join("\n");
         let context = `
+                        SEN TINNTEN’İN NİYET ÇIKARIM MOTORUSUN (INTENT ENGINE).
+
+                        ### A. Yapman Gereken
+                        1. Kullanıcının son mesajını ve son 3 konuşma satırını oku.
+                        2. Tüm olası niyetleri (intent) üret; 0‑N tane olabilir.
+                        3. Her intent için **yalnızca gerekli alanları** doldur.
+
+                        ### B. Geçerli intent ve tool listesi
+                        | intent | tool adı | açıklama |
+                        | recommendation      | ProductSuggestTool | ürün/hizmet önerisi |
+                        | production_info     | ProductDetailTool  | seçili ürün bilgisi |
+                        | services_info       | ServiceDetailTool  | seçili hizmet bilgisi |
+                        | search_product      | ProductSearchTool  | metin/vektör ile ürün arama |
+                        | search_service      | ServiceSearchTool  | metin/vektör ile hizmet arama |
+                        | chat                | null               | genel sohbet |
+                        | chatabouthproduct   | ProductUsageTool   | ürünle ne yapılır sohbeti |
+                        | chatabouthservices  | ServiceUsageTool   | hizmetle ilgili sohbet |
+                        | supplier_search     | SupplierSearchTool | tedarikçi/alıcı arama |
+
+                        Kurallar:
+                        • confidence < 0.15 ise intent oluşturma.
+                        • Belirsiz isteklerde (confidence < 0.4) "fallback.tool = 'QuestionTool'" ve uygun soru taslağı için "fallback.query" doldur.
+                        • Sadece tablo‑daki intent & tool adlarını kullan.
+                        • conditions, nextTool ve retryTool alanlarını, uygun olduğunda doldur:
+                        - conditions: Koşullu araç seçimleri için (örneğin, no_product, price_exceeds, no_supplier).
+                        - nextTool: Sonraki araç çağrısı için (örneğin, fiyat aşılırsa öneri).
+                        - retryTool: Tekrar deneme için (örneğin, arama başarısızsa).
+
+                        ### D. Bağlam
+                        Seçili ürün ID  : ${scoped.selectedProduct || "yok"}
+                        Seçili hizmet ID: ${scoped.selectedService || "yok"}
+
+                        Son 3 mesaj:
+                        ${recent}
+                        Kullanıcı: ${user?.name || "Anonim"}
+
+                        Kullanıcı mesajı: "${human_message}"
+
+                        YANITIN TAMAMINI, EK AÇIKLAMA OLMADAN, YALNIZCA ŞU JSON OLARAK DÖN:
+                        Kesinlikle: Başka hiçbir metin, yorum veya açıklama ekleme.
+
+                        ### C. JSON Çıktı Şeması
+                        ***json
+                        [
+                            {
+                                "intent": "<tablodaki intent>",
+                                "tool": "<tablodaki tool adı veya null>",
+                                "confidence": <0-1>,
+                                "priority": <1-3>,
+                                "related_id": "<varsa ürün/hizmet ID>",
+                                "query": "<opsiyonel>",
+                                "fallback": {
+                                "tool": "<opsiyonel>",
+                                "query": "<opsiyonel>"
+                                },
+                                "conditions": [
+                                {
+                                    "condition": "<koşul adı>",
+                                    "tool": "<tool adı>",
+                                    "query": "<sorgu>",
+                                    "params": <object>
+                                }
+                                ],
+                                "nextTool": {
+                                "tool": "<tool adı>",
+                                "query": "<sorgu>",
+                                "condition": "<koşul adı>"
+                                },
+                                "retryTool": {
+                                "tool": "<tool adı>",
+                                "maxRetries": <sayı>,
+                                "query": "<sorgu>"
+                                }
+                            }
+                        ]
+                        `.trim();
+
+
+        console.log("[intentSystemPrompt] Final context built.")
+        resolve(context)
+    })
+}
+
+module.exports = async (user, human_message, memory = [], scoped = {}) => {
+    return intentSystemPrompt(user, human_message, memory = [], scoped = {})
+}
+
+/**
+ * let context = `
                     SEN TINNTEN’İN NİYET ÇIKARIM MOTORUSUN (INTENT ENGINE).
                     
                     ### A. Yapman Gereken
@@ -23,6 +112,24 @@ const intentSystemPromt = (user, humanMessage, memory = [], scoped = {}) => {
                     | chatabouthproduct   | ProductUsageTool   | ürünle ne yapılır sohbeti |
                     | chatabouthservices  | ServiceUsageTool   | hizmetle ilgili sohbet |
                     
+                    Kurallar:  
+                    • confidence < 0.15 ise intent oluşturma.  
+                    • Belirsiz isteklerde (confidence < 0.4) "fallback.tool = "QuestionTool"" ve uygun soru taslağı için "fallback.query" doldur.  
+                    • Sadece tablo‑daki intent & tool adlarını kullan.
+                    
+                    ### D. Bağlam
+                    Seçili ürün ID  : ${scoped.selectedProduct || "yok"}  
+                    Seçili hizmet ID: ${scoped.selectedService || "yok"}
+                    
+                    Son 3 mesaj:  
+                    ${recent || "—"}
+                    Kullanıcı: ${user?.name || "Anonim"}
+
+                    Kullanıcı mesajı: "${human_message}"
+
+                    YANITIN TAMAMINI, EK AÇIKLAMA OLMADAN, YALNIZCA ŞU JSON OLARAK DÖN:
+                    Kesinlikle : Başka hiçbir metin, yorum veya açıklama ekleme.
+
                     ### C. JSON Çıktı Şeması
                     ***json
                     [
@@ -39,32 +146,9 @@ const intentSystemPromt = (user, humanMessage, memory = [], scoped = {}) => {
                         }
                         }
                     ]
-                    
-                    Kurallar:  
-                    • confidence < 0.15 ise intent oluşturma.  
-                    • Belirsiz isteklerde (confidence < 0.4) "fallback.tool = "QuestionTool"" ve uygun soru taslağı için "fallback.query" doldur.  
-                    • Sadece tablo‑daki intent & tool adlarını kullan.
-                    
-                    ### D. Bağlam
-                    Seçili ürün ID  : ${scoped.selectedProduct || "yok"}  
-                    Seçili hizmet ID: ${scoped.selectedService || "yok"}
-                    
-                    Son 3 mesaj:  
-                    ${recent || "—"}
-                    
-                    Kullanıcı mesajı: "${human_message}"
                     `.trim();
 
-
-        console.log("[intentSystemPromt] Final context built.")
-        resolve(context)
-    })
-}
-
-module.exports = async (user, human_message) => {
-    return intentSystemPromt(user, human_message)
-}
-
+ */
 /**
  * let context = `"Sen bir akıllı LLM'sin. Kullanıcının mesajını analiz ederek niyetini belirlemelisin.
                     Kullanıcının isteği şu 5 kategoriden birine girmelidir:

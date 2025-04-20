@@ -50,10 +50,18 @@ class BaseAgent {
   cleanJSON(responseText) {
     try {
       if (typeof responseText === "object") return responseText;
-      const cleaned = responseText
-        .replace(/```json|```|\*\*\*json|\*\*\*/gi, "")
+      // 1) kod bloklarını temizle
+      const txt = responseText
+        .replace(/```(?:json)?|\*\*\*json/gi, "")   // 1) ```json … 2) ***json
         .trim();
-      return JSON.parse(cleaned);
+
+      // 2) metin içinde ilk '[' / '{' karakterinden itibaren kes
+      const pos = Math.min(
+        ...["[", "{"].map(ch => txt.indexOf(ch)).filter(i => i >= 0)
+      );
+      if (pos > 0) txt = txt.slice(pos);
+
+      return JSON.parse(txt);
     } catch (error) {
       console.error("[BaseAgent] JSON parse error:", error);
       return {

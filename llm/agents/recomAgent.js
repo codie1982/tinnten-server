@@ -52,4 +52,4 @@ class RecomAgent extends BaseAgent {
   }
 }
 
-module.exports = RecomAgent;
+module.exports =  () => new RecomAgent();;

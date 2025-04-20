@@ -16,7 +16,11 @@ async function startWorker() {
     if (msg !== null) {
       const message = JSON.parse(msg.content.toString());
       console.log("📩 Gelen mesaj:", message);
-      if (message.type == null) channel.ack(msg); // Yanlış türdeyse mesajı işlenmiş gibi göster ve kuyruktan kaldır
+      if (!message?.type) {
+        console.warn("❗️Mesaj tipi eksik, atlanıyor.");
+        channel.ack(msg);
+        return;
+      } // Yanlış türdeyse mesajı işlenmiş gibi göster ve kuyruktan kaldır
       try {
         console.log(`📨 [${message.type}] Mail Gönderiliyor: ${message.data.to}`);
         await sendEmail(message.type, message.data.to, message.data.subject, message.content);
