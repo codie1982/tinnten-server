@@ -10,8 +10,7 @@ const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
 const { registerUser, loginUser } = require("../services/authServices.js");
 const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
-const SCOPE = "https://www.googleapis.com/auth/userinfo.profile email openid"
-const REDIRECTURI = "http://localhost:5001/api/v10/auth/google"
+
 const allow_origin_url = "http://localhost:3000"
 
 
@@ -43,12 +42,12 @@ const createurl = asyncHandler(async (req, res) => {
     const oAuth2Client = new OAuth2Client({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: REDIRECTURI,
+      redirectUri: process.env.REDIRECTURI,
     });
 
     const url = oAuth2Client.generateAuthUrl({
       access_type: "offline",
-      scope: SCOPE,
+      scope: process.env.SCOPE,
       prompt: "consent",
     });
     if (url) {
@@ -78,7 +77,7 @@ const google = asyncHandler(async (req, res) => {
     const oAuth2Client = new OAuth2Client({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      redirectUri: REDIRECTURI,
+      redirectUri: process.env.REDIRECTURI,
     });
 
     console.log("Google Auth Kodu:", code);

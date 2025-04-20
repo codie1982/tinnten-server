@@ -83,7 +83,7 @@ const conversation = asyncHandler(async (req, res) => {
 
     const userid = user._id;
 
-    const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
+    const manager = new ConversationRedisManager();
     const dbCon = new ConversationDB();
 
     // 📁 Konuşma kontrolü
@@ -342,7 +342,7 @@ const create = asyncHandler(async (req, res) => {
   const userid = user._id;
   try {
     // Yeni bir Conversation REdis oluştur
-    const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
+    const manager = new ConversationRedisManager();
     // **Yeni konuşma başlat**
     let nConversation = new Conversation();
     let conversationid = uuidv4()
@@ -386,7 +386,7 @@ const detail = asyncHandler(async (req, res) => {
     return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", { message: "Geçerli bir konuşma ID'si sağlamalısınız" }));
   }
   // Redis manager'ı başlat
-  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
+  const manager = new ConversationRedisManager();
   try {
     // Kullanıcı yetkilendirme kontrolü
     const access_token = req.kauth?.grant?.access_token?.token;
@@ -475,7 +475,7 @@ const historyies = asyncHandler(async (req, res) => {
   }
   const userid = user._id
   // Redis manager'ı başlat
-  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
+  const manager = new ConversationRedisManager();
   try {
 
     // Sayfalama parametrelerini al
@@ -561,7 +561,7 @@ const deleteConversation = asyncHandler(async (req, res) => {
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
   const { conversationid } = req.query;
-  const manager = new ConversationRedisManager({ host: "localhost", port: 6379 });
+  const manager = new ConversationRedisManager();
   try {
     const conDb = new ConversationDB();
     // Use readPaginated to get paged conversations.

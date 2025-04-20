@@ -8,7 +8,7 @@ const { ObjectId } = require("mongodb");
 const http = require('http');
 const { connectDB } = require("./config/db")
 const cookieParser = require('cookie-parser');
-const Redis = require("ioredis");
+
 
 
 const { errorHandler } = require("./middleware/errorHandler")
@@ -119,14 +119,10 @@ wss.on("error", (error) => {
   console.error("[server.js] WebSocket server hatası:", error);
 });
 
-
-
-app.use(
-  cors({
-    origin: 'http://localhost:3000',
-    credentials: true, // if you need to allow cookies or other credentials
-  })
-);
+app.use(cors({
+  origin: ["http://localhost:3000", "https://tinnten.com"],  // frontend URL'leri
+  credentials: true, // Eğer token ya da cookie ile çalışıyorsan
+}));
 // Middleware
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
@@ -189,184 +185,180 @@ app.get('/images/cover', (req, res) => {
 });
 
 
-app.post('/addproducts', async (req, res) => {
-  try {
-    const csvFilePath = path.join(__dirname, 'assets', 'production_info.csv');
-    const results = [];
-    const maxRows = 200; // İşlenecek maksimum satır sayısı (örnek için)
-    const skippedRows = []; // Atlanan satırları tutmak için dizi
-    const insertedProducts = []; // Eklenen ürünleri saklamak için
+if (process.env.NODE_ENV != "production") {
+  app.post('/addproducts', async (req, res) => {
+    try {
+      const csvFilePath = path.join(__dirname, 'assets', 'production_info.csv');
+      const results = [];
+      const maxRows = 200; // İşlenecek maksimum satır sayısı (örnek için)
+      const skippedRows = []; // Atlanan satırları tutmak için dizi
+      const insertedProducts = []; // Eklenen ürünleri saklamak için
 
-    const readStream = fs.createReadStream(csvFilePath);
-    readStream
-      .pipe(csv({ separator: ',', quote: '"' }))
-      .on('data', (row) => {
-        results.push(row);
-      })
-      .on('end', async () => {
-        console.log('CSV dosyası başarıyla işlendi.');
+      const readStream = fs.createReadStream(csvFilePath);
+      readStream
+        .pipe(csv({ separator: ',', quote: '"' }))
+        .on('data', (row) => {
+          results.push(row);
+        })
+        .on('end', async () => {
+          console.log('CSV dosyası başarıyla işlendi.');
 
-        // Her satırı sıralı olarak işle
-        for (let i = 0; i < results.length && i < maxRows == 0 ? results.length : maxRows; i++) {
-          const row = results[i];
+          // Her satırı sıralı olarak işle
+          for (let i = 0; i < results.length && i < maxRows == 0 ? results.length : maxRows; i++) {
+            const row = results[i];
 
-          // Gerekli alanlar listesi
-          const requiredFields = [
-            "Ürün İsmi",
-            "Ürün Fiyatı",
-            "Ürün Resmi",
-            "Meta Bilgisi",
-            "Ürün Marka",
-            "Ürün Açıklaması",
-            "URL"
-          ];
+            // Gerekli alanlar listesi
+            const requiredFields = [
+              "Ürün İsmi",
+              "Ürün Fiyatı",
+              "Ürün Resmi",
+              "Meta Bilgisi",
+              "Ürün Marka",
+              "Ürün Açıklaması",
+              "URL"
+            ];
 
-          // Eksik alanları kontrol et
-          let missingFields = [];
-          requiredFields.forEach(field => {
-            if (!row[field] || !row[field].toString().trim()) {
-              missingFields.push(field);
-            }
-          });
-          if (missingFields.length > 0) {
-            console.warn(`Satır ${i} eksik alanlara sahip: ${missingFields.join(", ")}. Atlanıyor.`);
-            skippedRows.push({
-              row,
-              error: `Eksik alanlar: ${missingFields.join(", ")}`
-            });
-            continue;
-          }
-
-          const title = row["Ürün İsmi"] ? row["Ürün İsmi"].trim() : "";
-          if (!title) continue;
-
-          // Aynı başlığa sahip ürün var mı kontrolü
-          /* const existingProduct = await ProductModel.findOne({ title: title });
-          if (existingProduct) {
-            console.log(`Duplicate product found for title "${title}". Skipping.`);
-            continue;
-          }
- */
-          try {
-            // Vektör metnini oluştur
-            const vectorText = `${row["Meta Bilgisi"]} - ${row["Ürün İsmi"]} - ${row["Ürün Marka"]} - ${row["Ürün Açıklaması"]} - ${row["URL"]}`;
-            const vectorResponse = await axios.post(
-              process.env.EMBEDDING_URL + "/api/v10/llm/vector",
-              { text: vectorText }
-            );
-            console.log("vectorResponse", vectorResponse.data)
-
-
-            /*   // Fiyat dönüşümü
-              let priceString = row["Ürün Fiyatı"] || "";
-              priceString = priceString.replace(/"/g, '');
-              priceString = priceString.replace('TL', '').trim().replace(',', '.');
-              const originalPrice = parseFloat(priceString);
-         
-              if (isNaN(originalPrice)) {
-                console.error(`Fiyat dönüştürülemedi: Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`);
-                skippedRows.push({
-                  row,
-                  error: `Fiyat değeri NaN. Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`
-                });
-                continue;
+            // Eksik alanları kontrol et
+            let missingFields = [];
+            requiredFields.forEach(field => {
+              if (!row[field] || !row[field].toString().trim()) {
+                missingFields.push(field);
               }
-         
-              // İlgili modellerden dokümanlar oluşturma
-              const priceDoc = await PriceModel.create({
-                originalPrice: originalPrice,
-                currency: "TL"
-              });
-         
-              const imageDoc = await ImageModel.create({
-                type: 'external',
-                path: row["Ürün Resmi"]
-              });
-         
-              const galleryDoc = await GalleryModel.create({
-                title: row["Ürün İsmi"],
-                description: row["Ürün Açıklaması"],
-                images: [imageDoc._id]
-              });
-         
-              const productDoc = {
-                title: row["Ürün İsmi"],
-                meta: row["Meta Bilgisi"],
-                description: row["Ürün Açıklaması"],
-                categories: [],
-                basePrice: [priceDoc._id],
-                variants: [],
-                gallery: galleryDoc._id,
-                redirectUrl: [row["URL"]],
-                vector: vectorResponse.data.vector
-              };
-         
-              // Ürünü veritabanına ekle
-              const newProduct = await ProductModel.create(productDoc);
-              insertedProducts.push(newProduct);
-              console.log(`Ürün eklendi: ${title}`); */
-          } catch (err) {
-            console.error(`Satır işlenirken hata oluştu (Title: ${title}):`, err.message);
-            skippedRows.push({
-              row,
-              error: err.message
             });
+            if (missingFields.length > 0) {
+              console.warn(`Satır ${i} eksik alanlara sahip: ${missingFields.join(", ")}. Atlanıyor.`);
+              skippedRows.push({
+                row,
+                error: `Eksik alanlar: ${missingFields.join(", ")}`
+              });
+              continue;
+            }
+
+            const title = row["Ürün İsmi"] ? row["Ürün İsmi"].trim() : "";
+            if (!title) continue;
+
+            // Aynı başlığa sahip ürün var mı kontrolü
+            /* const existingProduct = await ProductModel.findOne({ title: title });
+            if (existingProduct) {
+              console.log(`Duplicate product found for title "${title}". Skipping.`);
+              continue;
+            }
+   */
+            try {
+              // Vektör metnini oluştur
+              const vectorText = `${row["Meta Bilgisi"]} - ${row["Ürün İsmi"]} - ${row["Ürün Marka"]} - ${row["Ürün Açıklaması"]} - ${row["URL"]}`;
+              const vectorResponse = await axios.post(
+                process.env.EMBEDDING_URL + "/api/v10/llm/vector",
+                { text: vectorText }
+              );
+              console.log("vectorResponse", vectorResponse.data)
+
+
+              /*   // Fiyat dönüşümü
+                let priceString = row["Ürün Fiyatı"] || "";
+                priceString = priceString.replace(/"/g, '');
+                priceString = priceString.replace('TL', '').trim().replace(',', '.');
+                const originalPrice = parseFloat(priceString);
+           
+                if (isNaN(originalPrice)) {
+                  console.error(`Fiyat dönüştürülemedi: Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`);
+                  skippedRows.push({
+                    row,
+                    error: `Fiyat değeri NaN. Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`
+                  });
+                  continue;
+                }
+           
+                // İlgili modellerden dokümanlar oluşturma
+                const priceDoc = await PriceModel.create({
+                  originalPrice: originalPrice,
+                  currency: "TL"
+                });
+           
+                const imageDoc = await ImageModel.create({
+                  type: 'external',
+                  path: row["Ürün Resmi"]
+                });
+           
+                const galleryDoc = await GalleryModel.create({
+                  title: row["Ürün İsmi"],
+                  description: row["Ürün Açıklaması"],
+                  images: [imageDoc._id]
+                });
+           
+                const productDoc = {
+                  title: row["Ürün İsmi"],
+                  meta: row["Meta Bilgisi"],
+                  description: row["Ürün Açıklaması"],
+                  categories: [],
+                  basePrice: [priceDoc._id],
+                  variants: [],
+                  gallery: galleryDoc._id,
+                  redirectUrl: [row["URL"]],
+                  vector: vectorResponse.data.vector
+                };
+           
+                // Ürünü veritabanına ekle
+                const newProduct = await ProductModel.create(productDoc);
+                insertedProducts.push(newProduct);
+                console.log(`Ürün eklendi: ${title}`); */
+            } catch (err) {
+              console.error(`Satır işlenirken hata oluştu (Title: ${title}):`, err.message);
+              skippedRows.push({
+                row,
+                error: err.message
+              });
+            }
           }
-        }
 
-        // Atlanan satırları dosyaya kaydet
-        const skippedRowsPath = path.join(__dirname, 'skipped_rows.json');
-        fs.writeFileSync(skippedRowsPath, JSON.stringify(skippedRows, null, 2));
+          // Atlanan satırları dosyaya kaydet
+          const skippedRowsPath = path.join(__dirname, 'skipped_rows.json');
+          fs.writeFileSync(skippedRowsPath, JSON.stringify(skippedRows, null, 2));
 
-        if (insertedProducts.length) {
-          res.status(200).json({ message: 'Products added successfully', data: insertedProducts });
-        } else {
-          res.status(500).json({ message: 'No products were added.' });
-        }
-      })
-      .on('error', (err) => {
-        console.error('CSV dosyası işlenirken hata oluştu:', err);
-        res.status(500).json({ message: 'CSV dosyası işlenirken hata oluştu' });
-      });
-
-
-  } catch (error) {
-    console.error('Error fetching data from local network:', error);
-    res.status(500).send('Error fetching data from local network');
-  }
+          if (insertedProducts.length) {
+            res.status(200).json({ message: 'Products added successfully', data: insertedProducts });
+          } else {
+            res.status(500).json({ message: 'No products were added.' });
+          }
+        })
+        .on('error', (err) => {
+          console.error('CSV dosyası işlenirken hata oluştu:', err);
+          res.status(500).json({ message: 'CSV dosyası işlenirken hata oluştu' });
+        });
 
 
-});
-
-app.post("/test-mail", async (req, res) => {
-  try {
-    const send = await sendEmail("standart", "granitjeofizik@gmail.com", "Konu", { data: "mesaj" })
-      .catch(() => {
-        res.status(400).json({ message: "test mail gönderilmedi." });
-      });
-    if (send) {
-      res.status(200).json({ message: "test mail gönderildi" });
+    } catch (error) {
+      console.error('Error fetching data from local network:', error);
+      res.status(500).send('Error fetching data from local network');
     }
 
-  } catch (error) {
-    console.error("Error fetching data from local network:", error);
-    res.status(500).send("Error fetching data from local network");
-  }
-});
 
+  });
 
-if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "../frontend/build")))
-  app.get("*", (_req, res) => {
-    res.sendFile(path.resolve(__dirname, "../", "frontend", "build", "index.html"))
-  })
-} else {
+  app.post("/test-mail", async (req, res) => {
+    try {
+      const send = await sendEmail("standart", "granitjeofizik@gmail.com", "Konu", { data: "mesaj" })
+        .catch(() => {
+          res.status(400).json({ message: "test mail gönderilmedi." });
+        });
+      if (send) {
+        res.status(200).json({ message: "test mail gönderildi" });
+      }
+
+    } catch (error) {
+      console.error("Error fetching data from local network:", error);
+      res.status(500).send("Error fetching data from local network");
+    }
+  });
+}
+if (process.env.NODE_ENV !== "production") {
   app.get("/", (req, res) => {
-    res.send("Please set a production mode")
-  })
+    res.send("API running in development mode");
+  });
+
   app.get("/api", (req, res) => {
-    res.send("api works successfully")
-  })
+    res.send("API is working!");
+  });
 }
 
 app.use(errorHandler)
