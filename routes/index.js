@@ -13,6 +13,6 @@ router.use('/bid-request', require('./bidRequestRouters'));
 router.use('/bid-response', require('./bidResponseRouters'));
 router.use('/favorite', require('./favoriteRouters'));
 router.use('/upload', require('./uploadRouters'));
-router.use('/crawler', require('./crawlerRouters'));
+
 
 module.exports = router;
