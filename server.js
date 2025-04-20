@@ -351,15 +351,12 @@ if (process.env.NODE_ENV != "production") {
     }
   });
 }
-if (process.env.NODE_ENV !== "production") {
-  app.get("/", (req, res) => {
-    res.send("API running in development mode");
-  });
 
-  app.get("/api", (req, res) => {
-    res.send("API is working!");
-  });
-}
-
+app.get("/", (req, res) => {
+  res.send(`api running on ${process.env.NODE_ENV} mode`);
+});
+app.get("/api", (req, res) => {
+  res.send("API is working!");
+});
 app.use(errorHandler)
 server.listen(PORT, () => { console.log(`Started on Port : ${PORT}`) })
