@@ -1,7 +1,3 @@
-
-const Conversation = require("../../models/Conversation.js")
-const ConversationDB = require("../../db/ConversationMongoDB.js")
-
 const responseContext = (user, userid, conversationid, messageid, productinfo, human_message) => {
 
     return new Promise((resolve, reject) => {

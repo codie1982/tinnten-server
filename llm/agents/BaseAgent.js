@@ -1,6 +1,6 @@
 const { connection } = require("../../llm/llmconfig");
 const { v4: uuidv4 } = require("uuid");
-
+const Cost = require("../../lib/cost");
 class BaseAgent {
   constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
     this.model_name = model;
@@ -119,7 +119,7 @@ class BaseAgent {
       const tokens = completion.usage;
 
       const parsedContent = this.cleanJSON(responseText);
-      const Cost = require("../../lib/cost");
+     
       const costCalc = new Cost(this.model_name).calculate(
         tokens.prompt_tokens,
         tokens.completion_tokens
@@ -209,7 +209,6 @@ class BaseAgent {
         if (finishReason) {
           console.log(`[BaseAgent] Stream completed with reason: ${finishReason}`);
           tokens.completion_tokens = Math.round(accumulatedContent.length / 4);
-          const Cost = require("../../lib/cost");
           const costCalc = new Cost(this.model_name).calculate(
             tokens.prompt_tokens,
             tokens.completion_tokens

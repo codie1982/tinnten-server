@@ -1,7 +1,5 @@
-const Cost = require("../../lib/cost")
-const { seperateContext } = require("../system_promt/seperateContext")
 const BaseAgent = require("./BaseAgent")
-
+const { seperateContext } = require("../system_promt/seperateContext")
 class SeperateAgent extends BaseAgent {
   async getSeperate(search_context, similarProducts) {
     try {

@@ -1,8 +1,5 @@
-const { JsonWebTokenError } = require("jsonwebtoken");
-const Cost = require("../../lib/cost")
 const { productDBContext, servicesDBContext } = require("../system_promt/dbContext")
 const BaseAgent = require("./BaseAgent")
-
 class DBAgent extends BaseAgent {
     async getAggregateForProduct(search_context, vector, limit) {
         try {

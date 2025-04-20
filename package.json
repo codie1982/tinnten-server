@@ -8,7 +8,7 @@
     "server": "nodemon server.js && npm run emailworker && npm run conversationworker",
     "emailworker": "node workers/emailWorker.js",
     "conversationworker": "node workers/conversationWorker.js",
-    "build": "npm run build --prefix frontend",
+    "build": "npm run build",
     "client": "npm start --prefix frontend",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "test": "echo \"Error: no test specified\" && exit 1"
