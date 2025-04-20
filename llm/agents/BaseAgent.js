@@ -1,6 +1,6 @@
 const { connection } = require("../../llm/llmconfig");
 const { v4: uuidv4 } = require("uuid");
-const Cost = require("../../lib/cost");
+const Cost = require("../../lib/Cost.js");
 class BaseAgent {
   constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
     this.model_name = model;

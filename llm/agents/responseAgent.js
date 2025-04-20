@@ -1,7 +1,4 @@
 const BaseAgent = require("./BaseAgent.js");
-const { getWSS } = require("../../lib/WSSocket.js");
-
-
 const socketManager = require("../../lib/SocketManager.js");
 
 class ResponseAgent extends BaseAgent {
