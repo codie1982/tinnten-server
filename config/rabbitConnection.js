@@ -3,7 +3,7 @@ const amqp = require('amqplib');
 let connection = null;
 let config = {
   protocol: process.env.RABBITMQ_PROTOCOL || "amqp",
-  hostname: process.env.RABBITMQ_HOST || "localhost",
+  hostname: process.env.RABBITMQ_HOST || "rabbitmq",
   port: parseInt(process.env.RABBITMQ_PORT) || 5672,
   username: process.env.RABBITMQ_USERNAME,
   password: process.env.RABBITMQ_PASSWORD,
