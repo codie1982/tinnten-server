@@ -119,22 +119,34 @@ wss.on("error", (error) => {
   console.error("[server.js] WebSocket server hatası:", error);
 });
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://tinnten.com",
-  "https://www.tinnten.com"
-];
+if (process.env.NODE_ENV === "production") {
+  const allowedOrigins = [
+    "https://tinnten.com",
+    "https://www.tinnten.com"
+  ];
 
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  next();
-});
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+
+    next();
+  });
+}
+if (process.env.NODE_ENV !== "production") {
+  app.use(cors({
+    origin: "http://localhost:3000",
+    credentials: true
+  }));
+}
 // Middleware
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
