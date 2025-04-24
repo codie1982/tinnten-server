@@ -120,7 +120,7 @@ wss.on("error", (error) => {
 });
 
 app.use(cors({
-  origin: ["http://localhost:3000", "https://tinnten.com"],  // frontend URL'leri
+  origin: ["http://localhost:3000", "https://tinnten.com", "https://www.tinnten.com"],  // frontend URL'leri
   credentials: true, // Eğer token ya da cookie ile çalışıyorsan
 }));
 // Middleware
