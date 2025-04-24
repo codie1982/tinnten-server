@@ -1,12 +1,12 @@
 
 require("dotenv").config()
 require("colors")
-const { getRabbitConnection } = require('../config/rabbitConnection');
+const { connectRabbitWithRetry } = require('../config/rabbitConnection');
 const { sendEmail } = require('../services/mailServices');
 const { connectDB } = require("../config/db")
 async function startWorker() {
   connectDB()
-  const connection = await getRabbitConnection();
+  const connection = await connectRabbitWithRetry();
   const channel = await connection.createChannel();
   const queue = 'email_queue';
   await channel.assertQueue(queue, { durable: true });

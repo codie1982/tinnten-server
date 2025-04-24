@@ -23,4 +23,18 @@ async function getRabbitConnection() {
   }
 }
 
-module.exports = { getRabbitConnection };
+async function connectRabbitWithRetry(retries = 10, delay = 3000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const connection = await amqp.connect(config);
+      console.log("✅ RabbitMQ bağlantısı kuruldu");
+      return connection;
+    } catch (err) {
+      console.log(`🔁 RabbitMQ bağlantısı başarısız. Tekrar deneniyor... (${i + 1})`);
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+  throw new Error("❌ RabbitMQ bağlantısı kurulamadı.");
+}
+
+module.exports = { getRabbitConnection,connectRabbitWithRetry };
