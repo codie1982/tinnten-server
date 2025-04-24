@@ -35,9 +35,6 @@ const register = asyncHandler(async (req, res) => {
 });
 
 const createurl = asyncHandler(async (req, res) => {
-  res.header("Access-Control-Allow-Origin", allow_origin_url);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Referrer-Policy", "no-referrer-when-downgrade");
   try {
     const oAuth2Client = new OAuth2Client({
       clientId: process.env.GOOGLE_CLIENT_ID,
