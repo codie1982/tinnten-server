@@ -119,10 +119,22 @@ wss.on("error", (error) => {
   console.error("[server.js] WebSocket server hatası:", error);
 });
 
-app.use(cors({
-  origin: ["http://localhost:3000", "https://tinnten.com", "https://www.tinnten.com"],  // frontend URL'leri
-  credentials: true, // Eğer token ya da cookie ile çalışıyorsan
-}));
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://tinnten.com",
+  "https://www.tinnten.com"
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  next();
+});
 // Middleware
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
