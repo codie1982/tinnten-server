@@ -161,8 +161,6 @@ const google = asyncHandler(async (req, res) => {
     console.log("\u2728 Kullan\u0131c\u0131 login verisi oluşturuldu.", loginData);
 
     const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN, { expiresIn: "7d" });
-    console.log("\u2728 Kullanıcı login datası için oluşturulan token:", `${token}`);
-
 
     const isProduction = process.env.NODE_ENV === "production";
     
@@ -176,11 +174,15 @@ const google = asyncHandler(async (req, res) => {
 
     console.log("\u2728 JWT token oluşturuldu ve cookie olarak set edildi.");
 
-    const redirectUrl = process.env.BASE_FRONTEND_URL || "http://localhost:3000";
+    const redirecBasetUrl = process.env.BASE_FRONTEND_URL || "http://localhost:3000";
 
-    console.log("\u2728 Kullanıcı frontend'e redirect ediliyor:", `${redirectUrl}/google-auth?success=true&token=${token}`);
+    console.log("\u2728 Kullanıcı frontend'e redirect ediliyor:", `${redirecBasetUrl}/google-auth?success=true&token=...`);
 
-    res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
+    const redirectUrl = `${redirecBasetUrl}/google-auth?success=true&token=${token}`;
+
+    //res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
+    res.writeHead(302, { Location: redirectUrl });
+    res.end();
 
   } catch (err) {
     console.error("\u274c Genel Google Auth Hatası:", err.message);
