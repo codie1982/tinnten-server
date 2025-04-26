@@ -183,6 +183,8 @@ const google = asyncHandler(async (req, res) => {
     //res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
     res.writeHead(302, { Location: redirectUrl });
     res.end();
+    console.log("\u2728 Kullan\u0131c\u0131 frontend'e redirect edildi.");
+    console.log("\u2728 Google Login Handler Bitti.");
 
   } catch (err) {
     console.error("\u274c Genel Google Auth Hatası:", err.message);
@@ -196,13 +198,16 @@ const googlelogin = asyncHandler(async (req, res) => {
 
     try {
       const loginData = jwt.verify(authToken, process.env.JWT_SECRET_AUTH_TOKEN);
+      const isProduction = process.env.NODE_ENV === "production";
 
       res.cookie('refresh_token', loginData.refreshToken, {
         httpOnly: true,
-        secure: false,
+        secure: isProduction,
         sameSite: 'Lax',
         path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
       });
+    
 
       return res.status(200).json(ApiResponse.success(200, "", {
         status: { code: 200, description: "Success" },
@@ -228,9 +233,10 @@ const login = asyncHandler(async (req, res) => {
   try {
     const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo });
     // ✅ Refresh Token'ı Cookie'ye yazma işlemi burada yapılabilir
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie('refresh_token', loginData.refreshToken, {
       httpOnly: true,
-      secure: false,
+      secure: isProduction,
       sameSite: 'Lax',
       path: '/',
     });
