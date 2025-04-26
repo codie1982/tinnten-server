@@ -158,7 +158,6 @@ const google = asyncHandler(async (req, res) => {
       return res.status(500).json({ error: "Kullan\u0131c\u0131 i\u015flemi s\u0131ras\u0131nda hata olu\u015ftu." });
     }
 
-    console.log("\u2728 Kullan\u0131c\u0131 login verisi oluşturuldu.", loginData);
 
     const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN, { expiresIn: "7d" });
 
@@ -176,10 +175,9 @@ const google = asyncHandler(async (req, res) => {
 
     const redirecBasetUrl = process.env.BASE_FRONTEND_URL || "http://localhost:3000";
 
-    console.log("\u2728 Kullanıcı frontend'e redirect ediliyor:", `${redirecBasetUrl}/google-auth?success=true&token=...`);
 
     const redirectUrl = `${redirecBasetUrl}/google-auth?success=true&token=${token}`;
-    console.log("\u2728 Kullan\u0131c\u0131 frontend'e redirect ediliyor:", redirectUrl);
+
     //res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
     res.writeHead(302, { Location: redirectUrl });
     console.log("\u2728 Kullan\u0131c\u0131 frontend'e redirect edildi.");
