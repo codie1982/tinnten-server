@@ -182,10 +182,10 @@ const google = asyncHandler(async (req, res) => {
 
     //res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
     res.writeHead(302, { Location: redirectUrl });
-    return res.end();
     console.log("\u2728 Kullan\u0131c\u0131 frontend'e redirect edildi.");
     console.log("\u2728 Google Login Handler Bitti.");
-
+    return res.end();
+  
   } catch (err) {
     console.error("\u274c Genel Google Auth Hatası:", err.message);
     return res.status(500).json({ error: "Bir hata olu\u015ftu: " + err.message });
