@@ -62,13 +62,21 @@ const createurl = asyncHandler(async (req, res) => {
 });
 const google = asyncHandler(async (req, res) => {
   try {
+    console.log("\u2728 Google Login Handler Ba\u015flad\u0131...");
+
     const code = req.query.code;
-    if (!code) return res.status(400).json({ error: "Google OAuth kodu eksik!" });
+    if (!code) {
+      console.error("\u26a0\ufe0f Google OAuth kodu eksik!");
+      return res.status(400).json({ error: "Google OAuth kodu eksik!" });
+    }
 
     const userAgent = req.headers["user-agent"];
     const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
     const geo = geoip.lookup(ip);
 
+    console.log("\u2728 Gelen IP:", ip);
+    console.log("\u2728 User Agent:", userAgent);
+    console.log("\u2728 Geo Bilgisi:", geo);
 
     // Google OAuth2 İstemcisi
     const oAuth2Client = new OAuth2Client({
@@ -77,91 +85,101 @@ const google = asyncHandler(async (req, res) => {
       redirectUri: process.env.REDIRECTURI,
     });
 
-    console.log("Google Auth Kodu:", code);
-    console.log("Google header bilgisi:", process.env.GOOGLE_CLIENT_ID);
-    console.log("Google header bilgisi:", process.env.GOOGLE_CLIENT_SECRET);
-    console.log("Google header bilgisi:", process.env.REDIRECTURI);
+    console.log("\u2728 Google OAuth2 Client Olusturuldu.");
+    console.log("\u2728 GOOGLE_CLIENT_ID:", process.env.GOOGLE_CLIENT_ID);
+    console.log("\u2728 GOOGLE_CLIENT_SECRET:", process.env.GOOGLE_CLIENT_SECRET ? "***MASKELENDI***" : "Yok");
+    console.log("\u2728 REDIRECTURI:", process.env.REDIRECTURI);
 
-    console.log("Google Auth Bilgileri:",code);
     // Google'dan token al
-    const { tokens } = await oAuth2Client.getToken(code).catch((err) => {
-      console.error("Google Token Alma Hatası:", err.message);
-      return res.status(500).json({ error: "Google token alınamadı!" });
-    });
-    console.log("Google Token:", tokens);
+    console.log("\ud83d\udd17 Google'dan token al\u0131nıyor...");
+    let tokensResponse;
+    try {
+      tokensResponse = await oAuth2Client.getToken(code);
+    } catch (err) {
+      console.error("\u274c Google Token Alma Hatas\u0131:", err.message);
+      return res.status(500).json({ error: "Google token al\u0131namad\u0131! " + err.message });
+    }
+
+    const tokens = tokensResponse?.tokens;
+    console.log("\u2728 Al\u0131nan Tokens:", tokens);
 
     if (!tokens || !tokens.access_token) {
-      return res.status(400).json({ error: "Google token alınamadı!" });
+      console.error("\u274c Google access_token eksik!");
+      return res.status(400).json({ error: "Google token al\u0131namad\u0131!" });
     }
-   
-   
-   
+
     // Kullanıcı bilgilerini al
-    const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
-    const googleData = await response.json();
-    console.log("Google Kullanıcı Verisi:", googleData);
-    const {
-      sub,
-      name,
-      given_name,
-      family_name,
-      picture,
-      email,
-      email_verified,
-    } = googleData;
-
-    // Eğer email doğrulanmamışsa giriş yapmasına izin verme
-    if (!email_verified) {
-      return res.status(400).json({ error: "Email doğrulanmamış." });
+    console.log("\ud83d\udcc8 Google Kullan\u0131c\u0131 verisi alınıyor...");
+    let googleData;
+    try {
+      const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
+      googleData = await response.json();
+    } catch (err) {
+      console.error("\u274c Google Kullan\u0131c\u0131 Verisi Alma Hatas\u0131:", err.message);
+      return res.status(500).json({ error: "Google kullan\u0131c\u0131 verisi al\u0131namad\u0131!" });
     }
 
-    // Kullanıcının var olup olmadığını kontrol et
+    console.log("\u2728 Google Kullan\u0131c\u0131 Verisi:", googleData);
+
+    const { sub, name, given_name, family_name, picture, email, email_verified } = googleData;
+
+    if (!email_verified) {
+      console.error("\u274c Email do\u011frulanmam\u0131\u015f.");
+      return res.status(400).json({ error: "Email do\u011frulanmam\u0131\u015f." });
+    }
+
+    // Kullanıcı kontrol
     const device = "web";
     const provider = "google";
     let isExist = false;
 
+    console.log("\u2728 Kullan\u0131c\u0131 Keycloak'da var m\u0131 kontrol ediliyor...");
     try {
       isExist = await Keycloak.isUserExist(email);
-
     } catch (err) {
-      console.error("❌ Keycloak Kullanıcı Kontrol Hatası:", err.message);
-      return res.status(500).json({ error: "Kullanıcı kontrolü sırasında hata oluştu." });
+      console.error("\u274c Keycloak Kullan\u0131c\u0131 Kontrol Hatas\u0131:", err.message);
+      return res.status(500).json({ error: "Kullan\u0131c\u0131 kontrol\u00fc s\u0131ras\u0131nda hata olu\u015ftu." });
     }
+
+    console.log("\u2728 Kullan\u0131c\u0131 Var M\u0131:", isExist);
 
     let loginData;
     try {
       if (isExist) {
-        // Kullanıcı varsa login yap
+        console.log("\u2728 Kullan\u0131c\u0131 var, login yapılıyor...");
         loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
       } else {
-        // Kullanıcı yoksa kayıt yap ve ardından login yap
+        console.log("\u2728 Kullan\u0131c\u0131 yok, kay\u0131t yapılıp login yapılıyor...");
         await registerUser({ email, device, provider, password: email, firstName: given_name, lastName: family_name, picture });
         loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
       }
     } catch (err) {
-      console.error("❌ Kullanıcı Giriş/Kayıt Hatası:", err.message);
-      return res.status(500).json({ error: "Kullanıcı işlemi sırasında hata oluştu." });
+      console.error("\u274c Kullan\u0131c\u0131 Giri\u015f/Kay\u0131t Hatas\u0131:", err.message);
+      return res.status(500).json({ error: "Kullan\u0131c\u0131 i\u015flemi s\u0131ras\u0131nda hata olu\u015ftu." });
     }
-    // **JWT Token Oluştur**
-    const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN,
-      { expiresIn: "7d" }
-    );
 
-    // **Token'ı Cookie olarak ekle**
+    console.log("\u2728 Kullan\u0131c\u0131 login verisi oluşturuldu.", loginData);
+
+    const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN, { expiresIn: "7d" });
+
     res.cookie("auth_token", token, {
       httpOnly: true,
-      secure: false,
+      secure: process.env.NODE_ENV === "production",
       sameSite: 'Lax',
       path: '/',
     });
 
+    console.log("\u2728 JWT token oluşturuldu ve cookie olarak set edildi.");
 
-    // Kullanıcıyı frontend’e yönlendir
-    res.redirect(`${process.env.BASE_FRONTEND_URL}/google-auth?success=true&token=${token}`);
+    const redirectUrl = process.env.BASE_FRONTEND_URL || "http://localhost:3000";
+
+    console.log("\u2728 Kullanıcı frontend'e redirect ediliyor:", `${redirectUrl}/google-auth?success=true`);
+
+    res.redirect(`${redirectUrl}/google-auth?success=true&token=${token}`);
 
   } catch (err) {
-    console.error("❌ Genel Google Auth Hatası:", err.message);
-    return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
+    console.error("\u274c Genel Google Auth Hatası:", err.message);
+    return res.status(500).json({ error: "Bir hata olu\u015ftu: " + err.message });
   }
 });
 const googlelogin = asyncHandler(async (req, res) => {
