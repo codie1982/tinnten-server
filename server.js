@@ -33,7 +33,10 @@ const PORT = process.env.PORT || 3000;
 connectDB()
 const app = express()
 const server = http.createServer(app);
-
+// Proxy arkasındaysan bunu yap:
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
 const wss = initSocket(server);
 if (!wss) {
   console.error("[server.js] WebSocket server başlatılamadı!");
