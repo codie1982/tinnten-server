@@ -11,7 +11,7 @@ const Keycloak = require("../lib/Keycloak.js");
 const { registerUser, loginUser } = require("../services/authServices.js");
 const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
 
-const allow_origin_url = "http://localhost:3000"
+
 
 
 const register = asyncHandler(async (req, res) => {
@@ -78,19 +78,28 @@ const google = asyncHandler(async (req, res) => {
     });
 
     console.log("Google Auth Kodu:", code);
+    console.log("Google header bilgisi:", process.env.GOOGLE_CLIENT_ID);
+    console.log("Google header bilgisi:", process.env.GOOGLE_CLIENT_SECRET);
+    console.log("Google header bilgisi:", process.env.REDIRECTURI);
 
+    console.log("Google Auth Bilgileri:",code);
     // Google'dan token al
-    const { tokens } = await oAuth2Client.getToken(code);
+    const { tokens } = await oAuth2Client.getToken(code).catch((err) => {
+      console.error("Google Token Alma Hatası:", err.message);
+      return res.status(500).json({ error: "Google token alınamadı!" });
+    });
+    console.log("Google Token:", tokens);
+
     if (!tokens || !tokens.access_token) {
       return res.status(400).json({ error: "Google token alınamadı!" });
     }
-
-    oAuth2Client.setCredentials(tokens);
-
+   
+   
+   
     // Kullanıcı bilgilerini al
     const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${tokens.access_token}`);
     const googleData = await response.json();
-
+    console.log("Google Kullanıcı Verisi:", googleData);
     const {
       sub,
       name,
