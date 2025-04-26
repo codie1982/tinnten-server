@@ -52,7 +52,7 @@ async function registerUser({ email, device, provider, password, firstName, last
 
     }
 
-    let nProfile = await new Profile({
+    await new Profile({
         userid,
         profileImage: nImages != null ? nImages._id : null,
         accounts: [nAccount._id],

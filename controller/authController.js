@@ -148,7 +148,7 @@ const google = asyncHandler(async (req, res) => {
 
 
     // Kullanıcıyı frontend’e yönlendir
-    res.redirect(`http://localhost:3000/google-auth?success=true&token=${token}`);
+    res.redirect(`${process.env.BASE_FRONTEND_URL}/google-auth?success=true&token=${token}`);
 
   } catch (err) {
     console.error("❌ Genel Google Auth Hatası:", err.message);
