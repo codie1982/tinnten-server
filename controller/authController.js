@@ -162,7 +162,7 @@ const google = asyncHandler(async (req, res) => {
     const token = jwt.sign(loginData, process.env.JWT_SECRET_AUTH_TOKEN, { expiresIn: "7d" });
 
     const isProduction = process.env.NODE_ENV === "production";
-    
+
     res.cookie("auth_token", token, {
       httpOnly: true,
       secure: isProduction, // HTTPS bağlantıda cookie gönder
@@ -183,7 +183,7 @@ const google = asyncHandler(async (req, res) => {
     console.log("\u2728 Kullan\u0131c\u0131 frontend'e redirect edildi.");
     console.log("\u2728 Google Login Handler Bitti.");
     return res.end();
-  
+
   } catch (err) {
     console.error("\u274c Genel Google Auth Hatası:", err.message);
     return res.status(500).json({ error: "Bir hata olu\u015ftu: " + err.message });
@@ -205,7 +205,7 @@ const googlelogin = asyncHandler(async (req, res) => {
         path: '/',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 gün
       });
-    
+
 
       return res.status(200).json(ApiResponse.success(200, "", {
         status: { code: 200, description: "Success" },
@@ -254,6 +254,20 @@ const login = asyncHandler(async (req, res) => {
 
 const logout = asyncHandler(async (req, res) => {
   try {
+    console.log("logout:");
+    const access_token = req.kauth?.grant?.access_token?.token;
+    // 🛡️ Yetkilendirme
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
     // **1️⃣ Kullanıcının Refresh Token'ını al**
     const refreshToken = req.cookies["refresh_token"];
 
@@ -265,6 +279,7 @@ const logout = asyncHandler(async (req, res) => {
 
     // **3️⃣ Çıkış yaptıktan sonra refresh token'ı cookie'den temizle**
     res.clearCookie("refresh_token");
+    res.clearCookie("auto_token");
 
     return res.status(200).json(ApiResponse.success(200, "Başarıyla çıkış yapıldı", { message: "Başarıyla çıkış yapıldı." }));
 
@@ -318,7 +333,7 @@ const sendcode = asyncHandler(async (req, res) => {
       console.log("sendVerificationEmail")
 
       const verifyCode = await MailVerify.findOne({ userid })
-      console.log("verifyCode",verifyCode)
+      console.log("verifyCode", verifyCode)
       if (verifyCode) return res.status(404).json(ApiResponse.error(404, "Aktif bir kodu bulunmakta", {
         message: "Aktif bir kodunuz bulunmakta. Bir süre sonra tekrar deneyin."
       }));
@@ -392,13 +407,19 @@ const refreshtoken = asyncHandler(async (req, res) => {
   try {
     const response = await Keycloak.refreshUserToken(refreshToken)
 
-    res.json({ access_token: response.data.access_token });
+    res.status(200).json({ access_token: response.data.access_token });
+  } catch (error) {
+    res.status(401).json({ error: 'Failed to refresh token' });
+  }
+});
+const test = asyncHandler(async (req, res) => {
+  try {
+    res.status(200).json({  });
   } catch (error) {
     res.status(401).json({ error: 'Failed to refresh token' });
   }
 });
 
-
 module.exports = {
-  refreshtoken, logout, register, login, validate, google, googlelogin, createurl, sendcode, mailverify
+  refreshtoken, logout,test, register, login, validate, google, googlelogin, createurl, sendcode, mailverify
 };
