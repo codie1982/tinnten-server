@@ -23,7 +23,7 @@ async function getRabbitConnection() {
   }
 }
 
-async function connectRabbitWithRetry(retries = 3, delay = 5000) {
+async function connectRabbitWithRetry(retries = 10, delay = 5000) {
   for (let i = 0; i < retries; i++) {
     try {
       const connection = await amqp.connect(config);

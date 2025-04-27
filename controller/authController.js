@@ -101,7 +101,7 @@ const google = asyncHandler(async (req, res) => {
     }
 
     const tokens = tokensResponse?.tokens;
-    console.log("\u2728 Al\u0131nan Tokens:", tokens);
+
 
     if (!tokens || !tokens.access_token) {
       console.error("\u274c Google access_token eksik!");
