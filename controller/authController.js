@@ -10,13 +10,17 @@ const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
 const { registerUser, loginUser } = require("../services/authServices.js");
 const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
-
+const verifyRecaptcha = require("../utils/verifyRecaptcha.js");
 
 
 
 const register = asyncHandler(async (req, res) => {
-  const { email, device, provider, password, firstName, lastName } = req.body;
+  const { email, device, provider, password, firstName, lastName, captcha_token } = req.body;
 
+  const captchaResult = await verifyRecaptcha(captcha_token, ip);
+  if (!captchaResult.success || captchaResult.score < 0.5) {
+    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+  }
   // Basit giriş validasyonu
   if (!email || !password) {
     return res.status(400).json({ error: "Email ve şifre gereklidir." });
@@ -250,10 +254,15 @@ const googlelogin = asyncHandler(async (req, res) => {
 });
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password, device, deviceid, rememberme } = req.body;
+  const { email, password, device, deviceid, rememberme, captcha_token } = req.body;
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
+
+  const captchaResult = await verifyRecaptcha(captcha_token, ip);
+  if (!captchaResult.success || captchaResult.score < 0.5) {
+    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+  }
 
   try {
     let isUserExist = await Keycloak.isUserExist(email)
@@ -349,6 +358,11 @@ const validate = asyncHandler(async (req, res) => {
 });
 
 const sendcode = asyncHandler(async (req, res) => {
+  const { captchaToken } = req.body;
+  const captchaResult = await verifyRecaptcha(captchaToken, ip);
+  if (!captchaResult.success || captchaResult.score < 0.5) {
+    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+  }
   const access_token = req.kauth.grant.access_token.token;
   try {
     if (!access_token) {
@@ -392,8 +406,11 @@ const sendcode = asyncHandler(async (req, res) => {
 });
 
 const mailverify = asyncHandler(async (req, res) => {
-  const { code } = req.body;
-  console.log("code", code)
+  const { code,captchaToken } = req.body;
+  const captchaResult = await verifyRecaptcha(captchaToken, ip);
+  if (!captchaResult.success || captchaResult.score < 0.5) {
+    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+  }
   const access_token = req.kauth.grant.access_token.token;
 
   if (!access_token) {
