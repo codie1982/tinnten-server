@@ -10,7 +10,7 @@ const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
 const { registerUser, loginUser } = require("../services/authServices.js");
 const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
-const verifyRecaptcha = require("../utils/verifyRecaptcha.js");
+const { verifyRecaptcha } = require("../utils/verifyRecaptcha.js");
 
 
 
@@ -19,11 +19,11 @@ const register = asyncHandler(async (req, res) => {
 
   const captchaResult = await verifyRecaptcha(captcha_token, ip);
   if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+    return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
   }
   // Basit giriş validasyonu
   if (!email || !password) {
-    return res.status(400).json({ error: "Email ve şifre gereklidir." });
+    return res.status(400).json(ApiResponse.error(404, "Email ve şifre gereklidir.", {}));
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
@@ -258,18 +258,18 @@ const login = asyncHandler(async (req, res) => {
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
-
+  console.log("captcha_token, ip", captcha_token, ip)
+  console.log("ip", ip)
   const captchaResult = await verifyRecaptcha(captcha_token, ip);
+  console.log("captchaResult", captchaResult)
   if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
+    return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
   }
 
   try {
     let isUserExist = await Keycloak.isUserExist(email)
     if (!isUserExist) {
-      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
-        message: "Kullanıcı bulunamadı. Lütfen kayıt olun."
-      }));
+      return res.status(403).json(ApiResponse.error(403, "Kullanıcı bulunamadı. Lütfen kayıt olun.", {}));
     }
     // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
     const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo }, rememberme);
@@ -358,11 +358,6 @@ const validate = asyncHandler(async (req, res) => {
 });
 
 const sendcode = asyncHandler(async (req, res) => {
-  const { captchaToken } = req.body;
-  const captchaResult = await verifyRecaptcha(captchaToken, ip);
-  if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
-  }
   const access_token = req.kauth.grant.access_token.token;
   try {
     if (!access_token) {
@@ -406,13 +401,8 @@ const sendcode = asyncHandler(async (req, res) => {
 });
 
 const mailverify = asyncHandler(async (req, res) => {
-  const { code,captchaToken } = req.body;
-  const captchaResult = await verifyRecaptcha(captchaToken, ip);
-  if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json({ error: "Bot doğrulaması başarısız." });
-  }
+  const { code } = req.body;
   const access_token = req.kauth.grant.access_token.token;
-
   if (!access_token) {
     console.warn("Erişim tokeni bulunamadı veya geçersiz");
     return res.status(401).json(ApiResponse.error(401, "Yetkilendirme Hatası", {
