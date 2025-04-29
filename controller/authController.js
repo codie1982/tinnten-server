@@ -16,7 +16,11 @@ const { verifyRecaptcha } = require("../utils/verifyRecaptcha.js");
 
 const register = asyncHandler(async (req, res) => {
   const { email, device, provider, password, firstName, lastName, captcha_token } = req.body;
-
+  // request bilgilerini al
+  const userAgent = req.headers["user-agent"];
+  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+  const geo = geoip.lookup(ip);
+  
   const captchaResult = await verifyRecaptcha(captcha_token, ip);
   if (!captchaResult.success || captchaResult.score < 0.5) {
     return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
@@ -30,10 +34,7 @@ const register = asyncHandler(async (req, res) => {
     return res.status(404).json(ApiResponse.error(404, "Geçerli bir mail adresi giriniz", {}));
   }
 
-  // request bilgilerini al
-  const userAgent = req.headers["user-agent"];
-  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
-  const geo = geoip.lookup(ip);
+
 
   try {
     let isUserExist = await Keycloak.isUserExist(email)
