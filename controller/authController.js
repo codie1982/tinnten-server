@@ -17,20 +17,46 @@ const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require(
 const register = asyncHandler(async (req, res) => {
   const { email, device, provider, password, firstName, lastName } = req.body;
 
+  // Basit giriş validasyonu
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email ve şifre gereklidir." });
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Geçerli bir email adresi giriniz." });
+  }
+
+  // request bilgilerini al
+  const userAgent = req.headers["user-agent"];
+  const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
+  const geo = geoip.lookup(ip);
+
   try {
+    let isUserExist = await Keycloak.isUserExist(email)
+    if (isUserExist) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulundu", {
+        message: "Kullanıcı daha önce kayıt olmuş."
+      }));
+    }
+    // Kullanıcının daha önceden kayıtlı olup olmadığını registerUser ya da ayrı bir kontrol ile doğrulayın
     await registerUser({ email, device, provider, password, firstName, lastName });
-    loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+
+    // Doğru parametrelerle loginUser çağrısını yapın
+    const loginData = await loginUser({ email, password, device, deviceid: "", userAgent, ip, geo });
+
+    // Email doğrulama kodu gönderilirken hassas bilgilerin ayrıntıları gizlenmiştir
     await sendVerificationEmail(loginData.userid, email, firstName || 'Kullanıcı');
-    return res.status(201).json(ApiResponse.success(201, "", {
+
+    return res.status(201).json(ApiResponse.success(201, "Kullanıcı başarıyla kayıt edildi.", {
       status: { code: 201, description: "Success" },
       message: "Oturum açıldı",
       data: loginData,
       sendCode: false
     }));
-
   } catch (err) {
     console.error("❌ Register Error:", err.message);
-    return res.status(500).json({ error: "Bir hata oluştu: " + err.message });
+    // Hata mesajında detay yerine genel bir bilgi göndererek bilgilerin ifşa edilmesini engelliyoruz
+    return res.status(500).json({ error: "Bir hata oluştu. Lütfen daha sonra tekrar deneyiniz." });
   }
 });
 
@@ -229,6 +255,13 @@ const login = asyncHandler(async (req, res) => {
   const geo = geoip.lookup(ip);
 
   try {
+    let isUserExist = await Keycloak.isUserExist(email)
+    if (!isUserExist) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", {
+        message: "Kullanıcı bulunamadı. Lütfen kayıt olun."
+      }));
+    }
+    // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
     const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo });
     // ✅ Refresh Token'ı Cookie'ye yazma işlemi burada yapılabilir
     const isProduction = process.env.NODE_ENV === "production";
@@ -414,12 +447,12 @@ const refreshtoken = asyncHandler(async (req, res) => {
 });
 const test = asyncHandler(async (req, res) => {
   try {
-    res.status(200).json({  });
+    res.status(200).json({});
   } catch (error) {
     res.status(401).json({ error: 'Failed to refresh token' });
   }
 });
 
 module.exports = {
-  refreshtoken, logout,test, register, login, validate, google, googlelogin, createurl, sendcode, mailverify
+  refreshtoken, logout, test, register, login, validate, google, googlelogin, createurl, sendcode, mailverify
 };

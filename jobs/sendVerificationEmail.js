@@ -13,6 +13,7 @@ async function getRabbitChannel() {
   }
   return channel;
 }
+
 async function sendVerificationEmail(userid, to, name) {
   try {
     const channel = await getRabbitChannel();

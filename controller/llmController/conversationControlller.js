@@ -101,7 +101,18 @@ const conversation = asyncHandler(async (req, res) => {
       })
       console.log("conversation Redis", conversation)
     } else {
-      conversationDetail = await dbCon.read({ userid, conversationid });
+      try {
+        conversationDetail = await dbCon.read({ userid, conversationid });
+        if (!conversationDetail) {
+          throw new Error("Geçersiz conversationid: Konuşma detayları bulunamadı");
+        }
+      } catch (error) {
+        console.error("Konuşma detayları alınırken hata:", error);
+        return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+          message: "Konuşma detayları alınırken hata oluştu.",
+          error: error.message
+        }));
+      }
       console.log("conversationDetail DB", conversationDetail)
       //Redis'de yoksa detail yeniden redise yazılsın.
       await manager.setBase(userid, conversationid, new Conversation({
