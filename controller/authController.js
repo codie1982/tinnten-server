@@ -23,7 +23,7 @@ const register = asyncHandler(async (req, res) => {
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: "Geçerli bir email adresi giriniz." });
+    return res.status(404).json(ApiResponse.error(404, "Geçerli bir mail adresi giriniz", {}));
   }
 
   // request bilgilerini al
@@ -34,29 +34,28 @@ const register = asyncHandler(async (req, res) => {
   try {
     let isUserExist = await Keycloak.isUserExist(email)
     if (isUserExist) {
-      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulundu", {
-        message: "Kullanıcı daha önce kayıt olmuş."
-      }));
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı daha önce kayıt olmuş", {}));
     }
     // Kullanıcının daha önceden kayıtlı olup olmadığını registerUser ya da ayrı bir kontrol ile doğrulayın
     await registerUser({ email, device, provider, password, firstName, lastName });
 
     // Doğru parametrelerle loginUser çağrısını yapın
-    const loginData = await loginUser({ email, password, device, deviceid: "", userAgent, ip, geo });
+    const loginData = await loginUser({ email, password, device, deviceid: "", userAgent, ip, geo }, false);
 
     // Email doğrulama kodu gönderilirken hassas bilgilerin ayrıntıları gizlenmiştir
-    await sendVerificationEmail(loginData.userid, email, firstName || 'Kullanıcı');
+    let sendCode = await sendVerificationEmail(loginData.userid, process.env.NODE_ENV === "production" ? email : "granitjeofizik@gmail.com", firstName || 'Kullanıcı');
 
     return res.status(201).json(ApiResponse.success(201, "Kullanıcı başarıyla kayıt edildi.", {
       status: { code: 201, description: "Success" },
       message: "Oturum açıldı",
       data: loginData,
-      sendCode: false
+      sendCode: process.env.NODE_ENV === "production" ? sendCode : false
     }));
   } catch (err) {
     console.error("❌ Register Error:", err.message);
     // Hata mesajında detay yerine genel bir bilgi göndererek bilgilerin ifşa edilmesini engelliyoruz
-    return res.status(500).json({ error: "Bir hata oluştu. Lütfen daha sonra tekrar deneyiniz." });
+    return res.status(500).json(ApiResponse.error(404, "Bir hata oluştu. Lütfen daha sonra tekrar deneyiniz.", {}));
+
   }
 });
 
@@ -173,11 +172,11 @@ const google = asyncHandler(async (req, res) => {
     try {
       if (isExist) {
         console.log("\u2728 Kullan\u0131c\u0131 var, login yapılıyor...");
-        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo }, false);
       } else {
         console.log("\u2728 Kullan\u0131c\u0131 yok, kay\u0131t yapılıp login yapılıyor...");
         await registerUser({ email, device, provider, password: email, firstName: given_name, lastName: family_name, picture });
-        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo });
+        loginData = await loginUser({ email, password: email, device, deviceid: "", userAgent, ip, geo }, false);
       }
     } catch (err) {
       console.error("\u274c Kullan\u0131c\u0131 Giri\u015f/Kay\u0131t Hatas\u0131:", err.message);
@@ -249,7 +248,7 @@ const googlelogin = asyncHandler(async (req, res) => {
 });
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password, device, deviceid } = req.body;
+  const { email, password, device, deviceid, rememberme } = req.body;
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
@@ -262,14 +261,16 @@ const login = asyncHandler(async (req, res) => {
       }));
     }
     // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
-    const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo });
+    const loginData = await loginUser({ email, password, device, deviceid, userAgent, ip, geo }, rememberme);
     // ✅ Refresh Token'ı Cookie'ye yazma işlemi burada yapılabilir
     const isProduction = process.env.NODE_ENV === "production";
+
     res.cookie('refresh_token', loginData.refreshToken, {
       httpOnly: true,
       secure: isProduction,
-      sameSite: 'Lax',
+      sameSite: isProduction ? 'Strict' : 'Lax',
       path: '/',
+      maxAge: rememberme ? 1000 * 60 * 60 * 24 * 30 : undefined, // 30 gün veya session
     });
 
 

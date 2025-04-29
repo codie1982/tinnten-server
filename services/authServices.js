@@ -76,12 +76,12 @@ async function registerUser({ email, device, provider, password, firstName, last
         refreshToken: tokenData.refresh_token,
     };
 }
-async function loginUser({ email, password, device, deviceid, userAgent, ip, geo }) {
+async function loginUser({ email, password, device, deviceid, userAgent, ip, geo },rememberme) {
     if (!device) {
         throw new Error("Cihaz bilgisi eksik. (Cihaz türü belirtilmeli: web, mobile, tv)");
     }
     // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
-    const tokenData = await Keycloak.getUserToken(email, password);
+    const tokenData = await Keycloak.getUserToken(email, password,rememberme);
     const { access_token, refresh_token } = tokenData;
 
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
