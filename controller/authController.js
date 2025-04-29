@@ -20,8 +20,9 @@ const register = asyncHandler(async (req, res) => {
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
-  
+
   const captchaResult = await verifyRecaptcha(captcha_token, ip);
+  console.log("captchaResult", captchaResult)
   if (!captchaResult.success || captchaResult.score < 0.5) {
     return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
   }

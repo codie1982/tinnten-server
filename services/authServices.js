@@ -9,8 +9,8 @@ const {getUserProfile}  = require("./profileServices.js");
 async function registerUser({ email, device, provider, password, firstName, lastName, picture }) {
     // 1️⃣ İstemci ve rol bilgilerini paralel al
     const [clientId, role] = await Promise.all([
-        Keycloak.getClientId("tinnten-client"),
-        Keycloak.getRole(await Keycloak.getClientId("tinnten-client"), "user"),
+        Keycloak.getClientId(process.env.CLIENT_ID),
+        Keycloak.getRole(await Keycloak.getClientId(process.env.CLIENT_ID), "user"),
     ]);
 
     // 2️⃣ Keycloak üzerinde kullanıcı oluştur (google için email_verified true)
