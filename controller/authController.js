@@ -43,13 +43,15 @@ const register = asyncHandler(async (req, res) => {
     const loginData = await loginUser({ email, password, device, deviceid: "", userAgent, ip, geo }, false);
 
     // Email doğrulama kodu gönderilirken hassas bilgilerin ayrıntıları gizlenmiştir
-    await sendVerificationEmail(loginData.userid, process.env.NODE_ENV === "production" ? email : "granitjeofizik@gmail.com", firstName || 'Kullanıcı');
+    if (process.env.NODE_ENV === "production") {
+      await sendVerificationEmail(loginData.userid, process.env.NODE_ENV === "production" ? email : "granitjeofizik@gmail.com", firstName || 'Kullanıcı');
+    }
 
     return res.status(201).json(ApiResponse.success(201, "Kullanıcı başarıyla kayıt edildi.", {
       status: { code: 201, description: "Success" },
       message: "Oturum açıldı",
       data: loginData,
-      sendCode: process.env.NODE_ENV === "production" ? true : false
+      sendCode: true
     }));
   } catch (err) {
     console.error("❌ Register Error:", err.message);
