@@ -15,17 +15,23 @@ const { verifyRecaptcha } = require("../utils/verifyRecaptcha.js");
 
 
 const register = asyncHandler(async (req, res) => {
-  const { email, device, provider, password, firstName, lastName, captcha_token } = req.body;
+  const { email, device, provider, password, firstName, lastName } = req.body;
   // request bilgilerini al
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
 
-  const captchaResult = await verifyRecaptcha(captcha_token, ip);
-  console.log("captchaResult", captchaResult)
-  if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
+  if (process.env.NODE_ENV === "production") {
+    const captcha_token = req.body.captcha_token;
+    if (!captcha_token) {
+      return res.status(403).json(ApiResponse.error(403, "Captcha doğrulaması gereklidir.", {}));
+    }
+    const captchaResult = await verifyRecaptcha(captcha_token, ip);
+    if (!captchaResult.success || captchaResult.score < 0.5) {
+      return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
+    }
   }
+
   // Basit giriş validasyonu
   if (!email || !password) {
     return res.status(400).json(ApiResponse.error(404, "Email ve şifre gereklidir.", {}));
@@ -256,16 +262,21 @@ const googlelogin = asyncHandler(async (req, res) => {
 });
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password, device, deviceid, rememberme, captcha_token } = req.body;
+  const { email, password, device, deviceid, rememberme } = req.body;
   const userAgent = req.headers["user-agent"];
   const ip = req.headers["x-forwarded-for"] || req.connection.remoteAddress;
   const geo = geoip.lookup(ip);
-  console.log("captcha_token, ip", captcha_token, ip)
-  console.log("ip", ip)
-  const captchaResult = await verifyRecaptcha(captcha_token, ip);
-  console.log("captchaResult", captchaResult)
-  if (!captchaResult.success || captchaResult.score < 0.5) {
-    return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
+
+  //Captcha doğrulaması
+  if (process.env.NODE_ENV === "production") {
+    const captcha_token = req.body.captcha_token;
+    if (!captcha_token) {
+      return res.status(403).json(ApiResponse.error(403, "Captcha doğrulaması gereklidir.", {}));
+    }
+    const captchaResult = await verifyRecaptcha(captcha_token, ip);
+    if (!captchaResult.success || captchaResult.score < 0.5) {
+      return res.status(403).json(ApiResponse.error(403, "Bot doğrulaması başarısız.", {}));
+    }
   }
 
   try {
@@ -295,7 +306,7 @@ const login = asyncHandler(async (req, res) => {
     }));
   } catch (error) {
     console.error("Login Error:", error.message);
-    return res.status(500).json(ApiResponse.error(500, "Oturum açma hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
+    return res.status(500).json(ApiResponse.error(500, "Oturum açma hatası: " + error.message, {}));
   }
 });
 

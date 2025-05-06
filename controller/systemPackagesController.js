@@ -11,6 +11,24 @@ const getpackages = asyncHandler(async (req, res) => {
     return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
   }
 });
+const getuserpackages = asyncHandler(async (req, res) => {
+  try {
+    const packages = await SystemPackage.find({ delete: false, active: true,forCompany: false });
+    return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
+  } catch (err) {
+    console.error("Paket listeleme hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
+  }
+});
+const getbuisnesspackages = asyncHandler(async (req, res) => {
+  try {
+    const packages = await SystemPackage.find({ delete: false, active: true,forCompany: true });
+    return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
+  } catch (err) {
+    console.error("Paket listeleme hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
+  }
+});
 const create = asyncHandler(async (req, res) => {
   try {
     const {
@@ -129,7 +147,6 @@ const create = asyncHandler(async (req, res) => {
     return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
   }
 });
-
 const getpackage = asyncHandler(async (req, res) => {
   try {
     const packageid = req.params.id;
@@ -217,6 +234,8 @@ const filterpackages = asyncHandler(async (req, res) => {
 
 module.exports = {
   getpackages,
+  getuserpackages,
+  getbuisnesspackages,
   getpackage,
   create,
   update,
