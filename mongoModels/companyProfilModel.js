@@ -16,13 +16,13 @@ const companySchema = new mongoose.Schema({
   logo: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: null },
   industry: { type: String, required: [true, "Please specify the industry"], default: "" },
   website: { type: String, default: "" },
-  email: { type: String, required: [true, "Please add a contact email"], default: "" },
+  email: { type: String, required: [true, "Please add a contact email"] },
   phone: [{ type: mongoose.Schema.Types.ObjectId, ref: "phone", required: false }],
   address: [{ type: mongoose.Schema.Types.ObjectId, ref: "address", required: false }],
   social: [{ type: mongoose.Schema.Types.ObjectId, ref: "social", required: false }],
   accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
   employees: [{ userid: { type: String, required: true } }], // Çalışanlar sadece Keycloak ID ile tutulur
-  certifications: [{ type: String, default: "" }],
+  certifications: [{ type: String }],
 
   products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],
   services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],
@@ -43,4 +43,4 @@ const companySchema = new mongoose.Schema({
   },  // Vergi numarası (şirketler için) veya T.C. kimlik numarası (bireysel firmalar için)
 
 }, { timestamps: true });
-module.exports = mongoose.model('companyprofile', companySchema);;
+module.exports = mongoose.model('companyprofile', companySchema);

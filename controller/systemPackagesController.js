@@ -1,7 +1,7 @@
 const asyncHandler = require("express-async-handler");
 const SystemPackage = require("../mongoModels/systemPackageModel")
 const ApiResponse = require("../helpers/response")
-
+const SystemPackageRedisManager = require("../lib/SystemPackageRedisManager")
 const getpackages = asyncHandler(async (req, res) => {
   try {
     const packages = await SystemPackage.find({ delete: false, active: true });
@@ -13,7 +13,7 @@ const getpackages = asyncHandler(async (req, res) => {
 });
 const getuserpackages = asyncHandler(async (req, res) => {
   try {
-    const packages = await SystemPackage.find({ delete: false, active: true,forCompany: false });
+    const packages = await SystemPackage.find({ delete: false, active: true, forCompany: false }, { limit: 0 });
     return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
   } catch (err) {
     console.error("Paket listeleme hatası:", err);
@@ -22,8 +22,23 @@ const getuserpackages = asyncHandler(async (req, res) => {
 });
 const getbuisnesspackages = asyncHandler(async (req, res) => {
   try {
-    const packages = await SystemPackage.find({ delete: false, active: true,forCompany: true });
-    return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
+    const manager = new SystemPackageRedisManager();
+    let isExist = await manager.isExist()
+    if (!isExist) {
+      const packages = await SystemPackage.find(
+        { delete: false, active: true, forCompany: true },
+        { limit: 0 }
+      );
+      manager.setPackages(packages, 3600);
+      return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
+    } else {
+      const packages = await manager.getPackages();
+      if (!packages) {
+        return res.status(404).json(ApiResponse.error(404, 'Paket bulunamadı.', { error: "Paket mevcut değil veya silinmiş." }));
+      }
+      return res.status(200).json(ApiResponse.success(200, 'Paketler başarıyla getirildi.', packages));
+    }
+
   } catch (err) {
     console.error("Paket listeleme hatası:", err);
     return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: err.message }));
@@ -219,10 +234,10 @@ const harddelete = asyncHandler(async (req, res) => {
 const filterpackages = asyncHandler(async (req, res) => {
   try {
     const filters = { delete: false };
-    
+
     if (req.query.category) filters.category = req.query.category;
     if (req.query.status) filters.status = req.query.status;
-    
+
     const packages = await SystemPackage.find(filters);
     return res.status(200).json(ApiResponse.success(200, 'Filtrelenmiş paketler getirildi.', packages));
   } catch (err) {

@@ -97,8 +97,6 @@ const getProfile = asyncHandler(async (req, res) => {
   }
 });
 
-
-
 // **Profil Güncelleme (ID ile)**
 const updateProfile = asyncHandler(async (req, res) => {
   try {
