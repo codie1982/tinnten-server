@@ -6,4 +6,4 @@ const gallerySchema = new mongoose.Schema({
   description: { type: String, default: "" },
 }, { timestamps: true });
 
-module.exports = mongoose.model('gallery', gallerySchema);;
+module.exports = mongoose.model('gallery', gallerySchema);

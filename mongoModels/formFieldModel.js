@@ -29,4 +29,4 @@ const formFieldSchema = new mongoose.Schema({
     }
   }]
 },{timestamps:true});
-module.exports = mongoose.model('formfield', formFieldSchema);;
+module.exports = mongoose.model('formfield', formFieldSchema);
