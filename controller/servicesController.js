@@ -10,10 +10,10 @@ const getService = asyncHandler(async (req, res) => {
   try {
     const packages = await Services.find({ delete: false, active: true }, (["-delete", "-active", "-google_channel", "-appel_channel"]))
     if (packages.length > 0) {
-      const _packages = packages.map(package => {
-        delete package.google_channel
-        delete package.appel_channel
-        return package
+      const _packages = packages.map(pkg => {
+        delete pkg.google_channel
+        delete pkg.appel_channel
+        return pkg
       })
       return res.status(200).json(ApiResponse.success(200, 'Uygun paket listesi.', _packages));
     } else {

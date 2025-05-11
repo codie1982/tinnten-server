@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const companySchema = new mongoose.Schema({
   userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", default: null }, // Firma sahibinin userid'si
-  companyName: { type: String, unique: true, required: [true, "Please add a Company Name"], default: "" },
+  companyName: { type: String, required: [true, "Please add a Company Name"], default: "" },
+  slug: { type: String, unique: true, index: true, required: [true, "Please add a Company Name"] },
   foundedDate: {
     type: Date,
     default: new Date(),
@@ -14,22 +15,15 @@ const companySchema = new mongoose.Schema({
   },
   description: { type: String, default: "" },
   logo: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: null },
-  industry: { type: String, required: [true, "Please specify the industry"], default: "" },
+  industry: [{ type: String, required: [true, "Please specify the industry"], default: "" }],
   website: { type: String, default: "" },
   email: { type: String, required: [true, "Please add a contact email"] },
-  phone: [{ type: mongoose.Schema.Types.ObjectId, ref: "phone", required: false }],
-  address: [{ type: mongoose.Schema.Types.ObjectId, ref: "address", required: false }],
-  social: [{ type: mongoose.Schema.Types.ObjectId, ref: "social", required: false }],
+  phone: [{ type: mongoose.Schema.Types.ObjectId, ref: "phones", required: false }],
+  address: [{ type: mongoose.Schema.Types.ObjectId, ref: "addresses", required: false }],
+  social: [{ type: mongoose.Schema.Types.ObjectId, ref: "sociallinks", required: false }],
   accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
-  employees: [{ userid: { type: String, required: true } }], // Çalışanlar sadece Keycloak ID ile tutulur
+  employees: [{ userid: { type: String, ref: "users", required: true } }], // Çalışanlar sadece Keycloak ID ile tutulur
   certifications: [{ type: String }],
-
-  products: [{ type: mongoose.Schema.Types.ObjectId, ref: "products", required: false }],
-  services: [{ type: mongoose.Schema.Types.ObjectId, ref: "services", required: false }],
-  documents: [{ type: mongoose.Schema.Types.ObjectId, ref: "documents", required: false }],
-  galleries: [{ type: mongoose.Schema.Types.ObjectId, ref: "gallery", required: false }],
-  contents: [{ type: mongoose.Schema.Types.ObjectId, ref: "content", required: false }],
-
   // 🏢 **Firma Türü ve Vergi Bilgileri**
   companyType: {
     type: String,
@@ -38,9 +32,11 @@ const companySchema = new mongoose.Schema({
   },
   taxOrIdentityNumber: {
     type: String,
-    required: true,
     unique: true
   },  // Vergi numarası (şirketler için) veya T.C. kimlik numarası (bireysel firmalar için)
-
+  fieldHistory: {
+    companyName: [{ value: String, updatedAt: Date }],
+    website: [{ value: String, updatedAt: Date }]
+  }
 }, { timestamps: true });
 module.exports = mongoose.model('companyprofile', companySchema);

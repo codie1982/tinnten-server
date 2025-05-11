@@ -5,6 +5,12 @@ const addresSchema = new mongoose.Schema({
   city: { type: String }, // Şehir
   state: { type: String }, // Eyalet/Bölge
   zip: { type: String }, // Posta kodu
-  country: { type: String } // Ülke,
+  country: { type: String }, // Ülke,
+  location: {
+    coordinates: {
+      lat: { type: Number },
+      lng: { type: Number }
+    }
+  }
 }, { timestamps: true });
 module.exports = mongoose.model('addresses', addresSchema);;

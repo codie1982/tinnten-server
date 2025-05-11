@@ -386,4 +386,13 @@ app.get("/api", (req, res) => {
   res.send("API is working!");
 });
 app.use(errorHandler)
-server.listen(PORT, () => { console.log(`Started on Port : ${PORT}`) })
+
+
+// Sadece direkt çalıştırıldığında dinle
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Started on Port : ${PORT}`);
+  });
+}
+
+module.exports = app; // 👈 Supertest ile test için sadece app objesi export edilir
