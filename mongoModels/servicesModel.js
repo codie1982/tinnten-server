@@ -7,11 +7,12 @@ const servicesSchema = new mongoose.Schema({
   features: [{ type: String }],                             // Hizmet özellikleri (örn: SEO Desteği, Responsive Design)
   duration: { type: String, default: "Belirtilmemiş" },     // Tahmini süre (örn: 2 hafta, 3 gün)
   price: { type: mongoose.Schema.Types.ObjectId, ref: "price", required: false }, // Fiyat bilgisi
-  gallery: [{ type: mongoose.Schema.Types.ObjectId, ref: "gallery" }],  // Örnek projeler/görseller
+  gallery: { type: mongoose.Schema.Types.ObjectId, ref: "gallery" },  // Örnek projeler/görseller
 
   // 📍 Hizmetin Lokasyon Durumu
+  isOfferable: { type: Boolean, default: false },
+  requestForm: { type: mongoose.Schema.Types.ObjectId, ref: "dynamicform" },
   isLocationBased: { type: Boolean, default: false },       // Hizmet belirli bir bölgeye mi bağlı?
-  
   location: {
     province: { type: String, default: "" },                 // Ülke
     district: { type: String, default: "" },                 // Şehir
@@ -19,7 +20,8 @@ const servicesSchema = new mongoose.Schema({
       lat: { type: Number },
       lng: { type: Number }
     }
-  }
+  },
+  vector: { type: Array },
 
 }, { timestamps: true });
 module.exports = mongoose.model('services', servicesSchema);

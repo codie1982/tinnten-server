@@ -16,23 +16,40 @@ const accountSchema = new mongoose.Schema({
     expiredAt: { type: Date }, // süresi kontrol için
   }],
   usage: {
+    product: {
+      amount: { type: Number, default: 0 },
+    },
+    services: {
+      amount: { type: Number, default: 0 },
+    },
     file: {
-      upload: { type: Number, default: 0 },
-      download: { type: Number, default: 0 },
+      download: { type: Number, min: 0, default: 0 },
+      upload: { type: Number, min: 0, default: 0 },
+      maxfileupload: { type: Number, min: 0, default: 0 },
+      maxfileDownload: { type: Number, min: 0, default: 0 },
+      unit: { type: String, enum: ["b", "kb", "mb", "gb"], default: "b" },
       lastReset: { type: Date, default: Date.now }
     },
     image: {
-      upload: { type: Number, default: 0 },
-      download: { type: Number, default: 0 },
+      download: { type: Number, min: 0, default: 0 },
+      upload: { type: Number, min: 0, default: 0 },
+      maxfileupload: { type: Number, min: 0, default: 0 },
+      maxfileDownload: { type: Number, min: 0, default: 0 },
+      unit: { type: String, enum: ["b", "kb", "mb", "gb"], default: "b" },
       lastReset: { type: Date, default: Date.now }
     },
     video: {
-      upload: { type: Number, default: 0 },
-      download: { type: Number, default: 0 },
+      download: { type: Number, min: 0, default: 0 },
+      upload: { type: Number, min: 0, default: 0 },
+      maxfileupload: { type: Number, min: 0, default: 0 },
+      maxfileDownload: { type: Number, min: 0, default: 0 },
+      unit: { type: String, enum: ["b", "kb", "mb", "gb"], default: "b" },
+      stream: { type: Number, min: 0, default: 0 },
+      stream_unit: { type: String, enum: ["b", "kb", "mb", "gb"], default: "b" },
       lastReset: { type: Date, default: Date.now }
     },
     offer: {
-      count: { type: Number, default: 0 },
+      max: { type: Number, default: 0 },
       lastReset: { type: Date, default: Date.now }
     },
     llm: {

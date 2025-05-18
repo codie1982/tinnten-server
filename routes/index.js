@@ -5,6 +5,7 @@ router.use('/auth', require('./authRouters'));
 router.use('/users', require('./userRoutes'));
 router.use('/profile', require('./profilRoutes'));
 router.use('/products', require('./productRouters'));
+router.use('/forms', require('./formRouters'));
 router.use('/services', require('./servicesRouters'));
 router.use('/company', require('./companyRouters'));
 router.use('/system-packages', require('./systemPackagesRoutes'));

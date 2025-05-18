@@ -13,10 +13,10 @@ const systemPackageSchema = new mongoose.Schema({
     package_content_type: { type: String, enum: ["standart", "multisubscribe", "student"], default: "standart" },
     limit: {
         product: {
-            max: { type: Number, min: 0, default: 100 },
+            amount: { type: Number, min: 0, default: 10 },
         },
         services: {
-            max: { type: Number, min: 0, default: 100 },
+            amount: { type: Number, min: 0, default: 10 },
         },
         file: {
             download: { type: Number, min: 0, default: 512 },

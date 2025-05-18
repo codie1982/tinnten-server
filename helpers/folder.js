@@ -8,6 +8,7 @@
 const SONG = "song"
 const IMAGE = "image"
 const VIDEO = "video"
+const FILE = "file"
 const getFolderPath = (type, userid, filename) => {
     let folder;
     if (type == SONG) {
@@ -16,6 +17,8 @@ const getFolderPath = (type, userid, filename) => {
         folder = `${IMAGE}/${userid}/`;
     } else if (type == VIDEO) {
         folder = `${VIDEO}/${userid}/`;
+    } else if (type == FILE) {
+        folder = `${FILE}/${userid}/`;
     } else {
         folder = `others/${userid}/`;
     }
@@ -24,5 +27,5 @@ const getFolderPath = (type, userid, filename) => {
 const sanitizeFileName = (name) => {
     return name.replace(/[^a-zA-Z0-9-_\.]/g, '');
 };
-module.exports = { getFolderPath, sanitizeFileName, SONG, IMAGE, VIDEO };
+module.exports = { getFolderPath, sanitizeFileName, SONG, IMAGE, VIDEO,FILE };
 

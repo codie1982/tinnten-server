@@ -17,11 +17,11 @@ const companySchema = new mongoose.Schema({
   logo: { type: mongoose.Schema.Types.ObjectId, ref: "images", default: null },
   industry: [{ type: String, required: [true, "Please specify the industry"], default: "" }],
   website: { type: String, default: "" },
-  email: { type: String, required: [true, "Please add a contact email"] },
+  email: { type: String },
   phone: [{ type: mongoose.Schema.Types.ObjectId, ref: "phones", required: false }],
   address: [{ type: mongoose.Schema.Types.ObjectId, ref: "addresses", required: false }],
   social: [{ type: mongoose.Schema.Types.ObjectId, ref: "sociallinks", required: false }],
-  accounts: [{ type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null }],
+  account: { type: mongoose.Schema.Types.ObjectId, ref: "accounts", default: null },
   employees: [{ userid: { type: String, ref: "users", required: true } }], // Çalışanlar sadece Keycloak ID ile tutulur
   certifications: [{ type: String }],
   // 🏢 **Firma Türü ve Vergi Bilgileri**
@@ -37,6 +37,7 @@ const companySchema = new mongoose.Schema({
   fieldHistory: {
     companyName: [{ value: String, updatedAt: Date }],
     website: [{ value: String, updatedAt: Date }]
-  }
+  },
+  active: { type: Boolean, default: true }
 }, { timestamps: true });
 module.exports = mongoose.model('companyprofile', companySchema);

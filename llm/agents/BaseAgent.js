@@ -125,6 +125,8 @@ class BaseAgent {
         tokens.completion_tokens
       );
 
+      //Accoutn usage parametrelerini burada güncelle
+
       return this.createMCPMessage(mcpMessage.context_id, [
         {
           role: "assistant",

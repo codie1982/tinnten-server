@@ -2,31 +2,51 @@ const mongoose = require('mongoose');
 // 📄 Form Alanı (Field) Şeması
 const formFieldSchema = new mongoose.Schema({
   label: { type: String, required: true },                      // Alan adı (örn: "Zemin Türü")
-  type: {                                                       // Alan tipi
+
+  type: {
     type: String,
     enum: ["text", "textarea", "number", "date", "dropdown", "checkbox", "radio", "file"],
     required: true
   },
-  required: { type: Boolean, default: false },                  // Zorunlu alan mı?
-  options: [{                                                   // Seçimlik alanlar için seçenekler (dropdown, radio)
+
+  required: { type: Boolean, default: false },
+
+  placeholder: { type: String, default: "" },
+
+  options: [{
     label: { type: String },
     value: { type: String },
-    showFields: [{ type: mongoose.Schema.Types.ObjectId, ref: "formfield" }] // Bu seçildiğinde gösterilecek alanlar
+    showFields: [{ type: String }] // UUID ile eşleşen field ID'leri
   }],
-  placeholder: { type: String, default: "" },                   // Placeholder metni
 
-  validation: {                                                 // Doğrulama kuralları
+  validation: {
     minLength: { type: Number, default: 0 },
     maxLength: { type: Number },
     pattern: { type: String }
   },
 
-  dependencies: [{                                              // Bağlı olduğu alanlar
-    fieldid: { type: mongoose.Schema.Types.ObjectId, ref: "formfield" }, // Bağlı olduğu alanın ID'si
-    condition: {                                                // Koşul: Eşitlik veya belirli bir değere göre
-      operator: { type: String, enum: ["equals", "not_equals"], default: "equals" },
+  // === 📌 Yeni: UUID tabanlı dependency desteği ===
+  dependencies: [{
+    fieldid: { type: String }, // UUID (client tarafından belirleniyor)
+    condition: {
+      operator: {
+        type: String,
+        enum: [
+          "equals", "not_equals",
+          "greater_than", "less_than",
+          "before", "after",
+          "contains", "not_contains"
+        ],
+        default: "equals"
+      },
       value: { type: String }
     }
-  }]
-},{timestamps:true});
+  }],
+
+  locationType: {
+    type: String,
+    enum: ["point", "area", "none"],
+    default: "none"
+  }
+}, { timestamps: true });
 module.exports = mongoose.model('formfield', formFieldSchema);

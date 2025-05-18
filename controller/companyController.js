@@ -55,8 +55,8 @@ const createCompanyProfile = asyncHandler(async (req, res) => {
     } = req.body;
 
     // 🔍 VALIDASYONLAR
-    if (!companyName || !industry || !email) {
-      return res.status(400).json(ApiResponse.error({}, 400, "Zorunlu alanlar eksik: companyName, industry, email"));
+    if (!companyName || !industry) {
+      return res.status(400).json(ApiResponse.error({}, 400, "Zorunlu alanlar eksik: companyName, industry"));
     }
 
     // 1. Slug benzersizlik kontrolü
@@ -88,11 +88,6 @@ const createCompanyProfile = asyncHandler(async (req, res) => {
       return res.status(400).json(ApiResponse.error({}, 400, "Geçerli bir web sitesi URL'si girin."));
     }
 
-    // 5. email formatı
-    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!isValidEmail.test(email)) {
-      return res.status(400).json(ApiResponse.error({}, 400, "Geçerli bir email adresi girin."));
-    }
 
     // 6. phone number doğruluğu
     const phoneRegex = /^\+?[0-9\s\-]{7,20}$/;
@@ -186,7 +181,7 @@ const createCompanyProfile = asyncHandler(async (req, res) => {
       phone: phoneIds,
       address: [addressDoc._id],
       social: socialIds,
-      accounts: [nAccount._id],
+      account: nAccount._id,
       employees: [{ userid }],
       certifications,
       products: [],
