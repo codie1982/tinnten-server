@@ -9,7 +9,5 @@ const priceSchema = new mongoose.Schema({
     }
   },
   currency: { type: String, default: "TL" },               // Para birimi
-  isOfferable: { type: Boolean, default: false },  // Teklif istenebilir mi?
-  requestRequired: { type: Boolean, default: false }      // Fiyat görmek için teklif gerekli mi?
 }, { timestamps: true });
 module.exports = mongoose.model('price', priceSchema);;

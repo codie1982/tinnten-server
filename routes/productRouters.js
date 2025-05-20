@@ -1,7 +1,7 @@
 const express = require("express")
 const route = express.Router()
 const { getProducts, addProduct, getProductDetail,getProductBase, deleteProductRequestForm,
-    deleteProductGallery, deleteProductVariants, deleteProductBasePrice,getProductGallery,getProductVariants,
+    deleteProductGallery, deleteProductVariants, deleteProductBasePrice,deleteProductBasePriceItem,getProductGallery,getProductVariants,
     deleteProduct, deleteImageFromGallery, getProductBasePrice,updateProductBasePrice,
     updateProductGallery, updateProductVariants, updateProduct, updateProductRequestForm } = require("../controller/productsController")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
@@ -21,8 +21,8 @@ route.get("/variants/:id/:pid", keycloak.protect(), getProductVariants);
 route.put("/:id/:pid", keycloak.protect(), updateProduct);
 route.put("/variants/:id/:pid", keycloak.protect(), updateProductVariants);
 route.put("/gallery/:id/:pid", keycloak.protect(), updateProductGallery);
-route.put("/request-form/:id/:pid", keycloak.protect(), updateProductRequestForm);
-route.put("base-price/:id/:pid", keycloak.protect(), updateProductBasePrice);
+route.put("/request-form/:id/:pid/:fid", keycloak.protect(), updateProductRequestForm);
+route.put("/base-price/:id/:pid", keycloak.protect(), updateProductBasePrice);
 
 // === 🗑️ Alt Alan Silme ===
 route.delete("/:id/:pid", keycloak.protect(), deleteProduct);
@@ -30,6 +30,8 @@ route.delete("/variants/:id/:pid", keycloak.protect(), deleteProductVariants);
 route.delete("/gallery/:id/:pid", keycloak.protect(), deleteProductGallery);
 route.delete("/request-form/:id/:pid", keycloak.protect(), deleteProductRequestForm);
 route.delete("/base-price/:id/:pid", keycloak.protect(), deleteProductBasePrice);
+route.delete("/base-price/:id/:pid/:prid", keycloak.protect(), deleteProductBasePriceItem);
+
 
 // === 🖼️ Galeriden Tek Görsel Silme ===
 route.delete("/gallery/:id/:pid/image/:imageid", keycloak.protect(), deleteImageFromGallery);

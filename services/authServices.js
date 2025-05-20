@@ -4,9 +4,9 @@ const SystemPackage = require("../mongoModels/systemPackageModel.js");
 const Account = require("../mongoModels/accountModel.js");
 const Profile = require("../mongoModels/userProfilModel.js");
 const Images = require("../mongoModels/imagesModel.js")
-const {getUserProfile}  = require("./profileServices.js");
+const { getUserProfile, getCompanyProfile } = require("./profileServices.js");
 
-async function registerUser({ email, device, provider, password, firstName, lastName, picture }) {
+async function registerUser({ email, device, provider, password, firstName, lastName, picture}) {
     // 1️⃣ İstemci ve rol bilgilerini paralel al
     const [clientId, role] = await Promise.all([
         Keycloak.getClientId(process.env.CLIENT_ID),
@@ -60,28 +60,13 @@ async function registerUser({ email, device, provider, password, firstName, last
         address: [],
         sociallinks: [],
     }).save();
-
-
-    // 7️⃣ Kullanıcı otomatik giriş yapsın (token al)
-    const tokenData = await Keycloak.getUserToken(email, password);
-
-    return {
-        user: {
-            sub: userId,
-            email,
-            given_name: firstName,
-            family_name: lastName,
-        },
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
-    };
 }
-async function loginUser({ email, password, device, deviceid, userAgent, ip, geo },rememberme) {
+async function loginUser({ email, password, device, deviceid, userAgent, ip, geo }, rememberme) {
     if (!device) {
         throw new Error("Cihaz bilgisi eksik. (Cihaz türü belirtilmeli: web, mobile, tv)");
     }
     // **1️⃣ Kullanıcı Keycloak'tan JWT Token al**
-    const tokenData = await Keycloak.getUserToken(email, password,rememberme);
+    const tokenData = await Keycloak.getUserToken(email, password, rememberme);
     const { access_token, refresh_token } = tokenData;
 
     // **2️⃣ Kullanıcının ID’sini Keycloak üzerinden al**
@@ -99,7 +84,7 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
     }
     const userid = user._id;
 
-    const profiles = await getUserProfile(userid);
+    const companyInfo = await getCompanyProfile(userid);
 
     // **3️⃣ Aktif oturum kontrolü**
     const activeSessions = await Keycloak.getUserSessions(userkeyid);
@@ -127,9 +112,8 @@ async function loginUser({ email, password, device, deviceid, userAgent, ip, geo
     }
     delete userInfo.sub;
     return {
-        message: isNewDevice ? "Başarıyla yeni bir cihazdan giriş yapıldı" : "Başarıyla giriş yapıldı",
         info: userInfo,
-        userid,
+        userid, company: companyInfo,
         accessToken: access_token,
         refreshToken: refresh_token,
         lang: geo ? (geo.country === "TR" ? "TR" : "EN") : "TR"

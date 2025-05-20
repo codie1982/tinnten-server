@@ -447,6 +447,7 @@ const getProductBase = asyncHandler(async (req, res) => {
         redirectUrl: 1,
         isbn: 1,
         type: 1,
+        pricetype: 1,
         attributes: 1,
         createdAt: 1,
         updatedAt: 1
@@ -627,6 +628,7 @@ const updateProduct = asyncHandler(async (req, res) => {
       redirectUrl,
       isbn,
       type,
+      priceType,
       isOfferable,
       rentalPeriod,
       attributes
@@ -675,22 +677,27 @@ const updateProduct = asyncHandler(async (req, res) => {
 
       const allValid = redirectUrl.every(url => typeof url === "string" && validator.isURL(url));
 
-      console.log("allValid", allValid)
       if (!allValid) {
         return res.status(400).json(ApiResponse.error(400, "Tüm redirectUrl elemanları geçerli bir URL olmalıdır.", {}));
       }
 
       product.redirectUrl = redirectUrl;
+
     }
     if (isbn) product.isbn = isbn;
-    if (type && ["product", "service", "rental", "listing", "offer_based"].includes(type)) {
-      product.type = type;
+    product.type = type
+    if (priceType && ["fixed", "rental", "offer_based"].includes(priceType)) {
+      product.pricetype = priceType;
     }
     if (typeof isOfferable === "boolean") product.isOfferable = isOfferable;
     if (rentalPeriod) product.rentalPeriod = rentalPeriod;
     // ✅ Yeni: attributes güncellemesi
-    if (Array.isArray(attributes)) {
-      product.attributes = attributes;
+    if (Array.isArray(attributes) && attributes.length > 0) {
+      const validAttributes = attributes.filter(attr =>
+        typeof attr.name === "string" &&
+        typeof attr.value === "string"
+      );
+      product.attributes = validAttributes;
     }
     await product.save();
     delete product.vector;
@@ -714,21 +721,41 @@ const updateProductVariants = asyncHandler(async (req, res) => {
     return res.status(400).json(ApiResponse.error(400, "Variants dizisi gönderilmelidir.", {}));
   }
 
-  // Firma ve kullanıcı erişim kontrolü (aynı şekilde)
+  // Yetkilendirme
+  const access_token = req.kauth.grant.access_token.token;
+  const userInfo = await Keycloak.getUserInfo(access_token);
+  const userkeyid = userInfo.sub;
+
+  const user = await User.findOne({ keyid: userkeyid });
+  const isUserInCompany = await Company.exists({
+    _id: companyid,
+    "employees.userid": user._id
+  });
+
+  if (!isUserInCompany) {
+    return res.status(403).json(ApiResponse.error(403, "Yetkisiz erişim.", {}));
+  }
+
   // Ürün kontrolü
+  const product = await Product.findOne({ _id: productid, companyid });
+  if (!product) {
+    return res.status(404).json(ApiResponse.error(404, "Ürün bulunamadı.", {}));
+  }
 
-  // Tüm eski varyantları sil
-  await Variant.deleteMany({ _id: { $in: variants.map(v => v._id).filter(Boolean) } });
+  // Eski varyantları sil
+  await Variant.deleteMany({ _id: { $in: product.variants } });
 
-  // Yeni varyantları oluştur
+  // Yeni varyantları ekle
   const newVariantIds = [];
-  for (let variantData of variants) {
+  for (const variantData of variants) {
     const newVariant = new Variant(variantData);
     await newVariant.save();
     newVariantIds.push(newVariant._id);
   }
 
-  await Product.updateOne({ _id: productid, companyid }, { variants: newVariantIds });
+  // Ürünü güncelle
+  product.variants = newVariantIds;
+  await product.save();
 
   return res.status(200).json(ApiResponse.success(200, "Varyantlar güncellendi.", newVariantIds));
 });
@@ -741,14 +768,40 @@ const updateProductGallery = asyncHandler(async (req, res) => {
   const { id: companyid, pid: productid } = req.params;
   const { gallery } = req.body;
 
-  if (!gallery || !Array.isArray(gallery.images)) {
-    return res.status(400).json(ApiResponse.error(400, "Gallery.images bir dizi olmalıdır.", {}));
+  // Kullanıcı doğrulama
+  const access_token = req.kauth.grant.access_token.token;
+  const userInfo = await Keycloak.getUserInfo(access_token);
+  const userkeyid = userInfo.sub;
+  const user = await User.findOne({ keyid: userkeyid });
+
+  const isUserInCompany = await Company.exists({
+    _id: companyid,
+    "employees.userid": user._id
+  });
+
+  if (!isUserInCompany) {
+    return res.status(403).json(ApiResponse.error(403, "Yetkisiz erişim.", {}));
+  }
+
+  // Validasyon
+  if (!gallery || !Array.isArray(gallery.images) || gallery.images.length === 0) {
+    return res.status(400).json(ApiResponse.error(400, "Gallery.images boş olamaz.", {}));
   }
 
   const imageIds = [];
-
   for (const image of gallery.images) {
-    const newImage = new Image(image);
+    const { uploadid, path, type } = image;
+
+    if (!uploadid || !path) {
+      continue; // eksik olanları atla
+    }
+
+    const newImage = new Image({
+      uploadid,
+      path,
+      type: type || "internal"
+    });
+
     await newImage.save();
     imageIds.push(newImage._id);
   }
@@ -761,9 +814,17 @@ const updateProductGallery = asyncHandler(async (req, res) => {
 
   await newGallery.save();
 
-  await Product.updateOne({ _id: productid, companyid }, { gallery: newGallery._id });
+  const updatedProduct = await Product.findOneAndUpdate(
+    { _id: productid, companyid },
+    { gallery: newGallery._id },
+    { new: true }
+  );
 
-  return res.status(200).json(ApiResponse.success(200, "Galeri güncellendi.", newGallery._id));
+  if (!updatedProduct) {
+    return res.status(404).json(ApiResponse.error(404, "Ürün bulunamadı.", {}));
+  }
+
+  return res.status(200).json(ApiResponse.success(200, "Galeri başarıyla güncellendi.", newGallery));
 });
 /**
  * @desc Ürünün talep formunu günceller
@@ -771,36 +832,82 @@ const updateProductGallery = asyncHandler(async (req, res) => {
  * @access Private (firma kullanıcısı)
  */
 const updateProductRequestForm = asyncHandler(async (req, res) => {
-  const { id: companyid, pid: productid } = req.params;
-  const { requestFormId } = req.body;
+  const { id: companyid, pid: productid, fid: formid } = req.params;
 
-  if (!requestFormId) {
+  if (!formid) {
     return res.status(400).json(ApiResponse.error(400, "requestFormId zorunludur.", {}));
   }
 
-  await Product.updateOne({ _id: productid, companyid }, { requestForm: requestFormId });
+  await Product.updateOne({ _id: productid, companyid }, { requestForm: formid });
 
-  return res.status(200).json(ApiResponse.success(200, "Request form güncellendi.", requestFormId));
+  return res.status(200).json(ApiResponse.success(200, "Request form güncellendi.", {}));
 });
 /**
- * @desc Ürünün temel fiyat bilgisini günceller (yeni Price kaydı oluşturur)
- * @route PUT /api/v1/products/:companyid/:productid/base-price
+ * @desc Ürüne yeni fiyat ekler (price history)
+ * @route POST /api/v1/products/:companyid/:productid/base-price
  * @access Private (firma kullanıcısı)
  */
 const updateProductBasePrice = asyncHandler(async (req, res) => {
   const { id: companyid, pid: productid } = req.params;
-  const { price } = req.body;
+  let { _id, currency, discountRate, originalPrice } = req.body;
 
-  if (!price || typeof price.originalPrice !== "number") {
-    return res.status(400).json(ApiResponse.error(400, "Geçerli fiyat bilgisi girilmelidir.", {}));
+  const access_token = req.kauth.grant.access_token.token;
+  const userInfo = await Keycloak.getUserInfo(access_token);
+  const userkeyid = userInfo.sub;
+
+  const user = await User.findOne({ keyid: userkeyid });
+  const isUserInCompany = await Company.exists({
+    _id: companyid,
+    "employees.userid": user._id
+  });
+
+  if (!isUserInCompany) {
+    return res.status(403).json(ApiResponse.error(403, "Yetkisiz erişim.", {}));
   }
 
-  const newPrice = new Price(price);
-  await newPrice.save();
+  if (!["TL", "DL"].includes(currency)) {
+    return res.status(400).json(ApiResponse.error(400, "Geçerli para birimi seçilmelidir.", {}));
+  }
 
-  await Product.updateOne({ _id: productid, companyid }, { basePrice: [newPrice._id] });
+  if (discountRate && typeof discountRate !== "number") {
+    discountRate = 0;
+  }
 
-  return res.status(200).json(ApiResponse.success(200, "Ana fiyat güncellendi.", newPrice._id));
+  let savedPrice;
+  let operation;
+
+  if (_id) {
+    // 🔁 GÜNCELLE
+    const updated = await Price.findByIdAndUpdate(
+      _id,
+      { currency, discountRate, originalPrice },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json(ApiResponse.error(404, "Fiyat kaydı bulunamadı.", {}));
+    }
+
+    savedPrice = updated;
+    operation = "update";
+
+  } else {
+    // ➕ YENİ EKLE
+    const newPrice = new Price({ currency, discountRate, originalPrice });
+    await newPrice.save();
+
+    await Product.updateOne(
+      { _id: productid, companyid },
+      { $push: { basePrice: newPrice._id } }
+    );
+
+    savedPrice = newPrice;
+    operation = "create";
+  }
+
+  return res
+    .status(200)
+    .json(ApiResponse.success(200, `Fiyat ${operation === "update" ? "güncellendi" : "eklendi"}.`, savedPrice));
 });
 
 /**
@@ -853,6 +960,28 @@ const deleteProductBasePrice = asyncHandler(async (req, res) => {
   await Product.updateOne({ _id: productid }, { basePrice: [] });
 
   return res.status(200).json(ApiResponse.success(200, "BasePrice silindi."));
+});
+
+/**
+ * @desc Ürünün fiyatlarından ilgili id'yi siler ve ürün basePrice alanındaki referansı kaldırır
+ * @route DELETE /api/v1/products/base-price/:companyid/:productid/:priceid
+ * @access Private (firma kullanıcısı)
+ */
+const deleteProductBasePriceItem = asyncHandler(async (req, res) => {
+  const { id: companyid, pid: productid, prid: priceid } = req.params;
+
+  const product = await Product.findOne({ _id: productid, companyid });
+  if (!product || !product.basePrice || product.basePrice.length === 0) {
+    return res.status(404).json(ApiResponse.error(404, "BasePrice bulunamadı.", {}));
+  }
+
+  // Fiyatı sil
+  await Price.deleteOne({ _id: priceid });
+
+  // Product.basePrice alanındaki ilgili priceid'yi kaldır
+  await Product.updateOne({ _id: productid }, { $pull: { basePrice: priceid } });
+
+  return res.status(200).json(ApiResponse.success(200, "BasePrice silindi.", { priceid }));
 });
 /**
  * @desc Ürüne ait varyantları siler
@@ -922,8 +1051,7 @@ const deleteProductRequestForm = asyncHandler(async (req, res) => {
  * @access Private (firma kullanıcısı)
  */
 const deleteImageFromGallery = asyncHandler(async (req, res) => {
-  const { companyid, productid, imageid } = req.params;
-
+  const { id: companyid, pid: productid, imageid: imageid } = req.params;
   const product = await Product.findOne({ _id: productid, companyid }).populate({
     path: "gallery",
     populate: { path: "images" }
@@ -939,13 +1067,13 @@ const deleteImageFromGallery = asyncHandler(async (req, res) => {
   }
 
   // Eğer internal ise dosya sisteminden/s3'ten de sil
-  if (image.type === "internal" && image.path) {
-    try {
-      await imageService.deleteFromStorage(image.path);
-    } catch (err) {
-      console.warn(`⚠️ Görsel S3'ten silinemedi: ${image.path}`, err.message);
-    }
-  }
+  /*  if (image.type === "internal" && image.path) {
+     try {
+       await imageService.deleteFromStorage(image.path);
+     } catch (err) {
+       console.warn(`⚠️ Görsel S3'ten silinemedi: ${image.path}`, err.message);
+     }
+   } */
 
   // Görseli DB'den sil
   await Image.deleteOne({ _id: imageid });
@@ -956,11 +1084,11 @@ const deleteImageFromGallery = asyncHandler(async (req, res) => {
     { $pull: { images: imageid } }
   );
 
-  return res.status(200).json(ApiResponse.success(200, "Görsel galeriden silindi."));
+  return res.status(200).json(ApiResponse.success(200, "Görsel galeriden silindi.", { imageid }));
 });
 module.exports = {
-  getProducts, addProduct, getProductDetail, getProductBase, deleteProductRequestForm,getProductVariants,
-  deleteProductGallery, deleteProductVariants, deleteProductBasePrice,getProductGallery,
+  getProducts, addProduct, getProductDetail, getProductBase, deleteProductRequestForm, getProductVariants,
+  deleteProductGallery, deleteProductVariants, deleteProductBasePrice, deleteProductBasePriceItem, getProductGallery,
   deleteProduct, deleteImageFromGallery, getProductBasePrice, updateProductBasePrice,
   updateProductGallery, updateProductVariants, updateProduct, updateProductRequestForm
 };

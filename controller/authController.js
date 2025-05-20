@@ -41,8 +41,6 @@ const register = asyncHandler(async (req, res) => {
     return res.status(404).json(ApiResponse.error(404, "Geçerli bir mail adresi giriniz", {}));
   }
 
-
-
   try {
     let isUserExist = await Keycloak.isUserExist(email)
     if (isUserExist) {
@@ -59,12 +57,7 @@ const register = asyncHandler(async (req, res) => {
       await sendVerificationEmail(loginData.userid, process.env.NODE_ENV === "production" ? email : "granitjeofizik@gmail.com", firstName || 'Kullanıcı');
     }
 
-    return res.status(201).json(ApiResponse.success(201, "Kullanıcı başarıyla kayıt edildi.", {
-      status: { code: 201, description: "Success" },
-      message: "Oturum açıldı",
-      data: loginData,
-      sendCode: true
-    }));
+    return res.status(201).json(ApiResponse.success(201, "Kullanıcı başarıyla kayıt edildi.", { ...loginData, sendCode: true }));
   } catch (err) {
     console.error("❌ Register Error:", err.message);
     // Hata mesajında detay yerine genel bir bilgi göndererek bilgilerin ifşa edilmesini engelliyoruz
@@ -246,12 +239,7 @@ const googlelogin = asyncHandler(async (req, res) => {
       });
 
 
-      return res.status(200).json(ApiResponse.success(200, "", {
-        status: { code: 200, description: "Success" },
-        message: "Oturum açıldı",
-        data: loginData,
-        sendCode: false
-      }));
+      return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", { ...loginData, sendCode: false }));
     } catch (err) {
       res.status(401).json({ error: "Geçersiz token" });
     }
@@ -297,13 +285,7 @@ const login = asyncHandler(async (req, res) => {
       maxAge: rememberme ? 1000 * 60 * 60 * 24 * 30 : undefined, // 30 gün veya session
     });
 
-
-    return res.status(200).json(ApiResponse.success(200, "", {
-      status: { code: 200, description: "Success" },
-      message: "Oturum açıldı",
-      data: loginData,
-      sendCode: false
-    }));
+    return res.status(200).json(ApiResponse.success(200, "Oturum açıldı", { ...loginData, sendCode: false }));
   } catch (error) {
     console.error("Login Error:", error.message);
     return res.status(500).json(ApiResponse.error(500, "Oturum açma hatası: " + error.message, {}));

@@ -10,8 +10,13 @@ const productSchema = new mongoose.Schema({
   // 🎯 Ürün tipi: product | rental | offer_based
   type: {
     type: String,
-    enum: ["product", "rental", "offer_based"],
+    enum: ["product", "services"],
     default: "product"
+  },
+  pricetype: {
+    type: String,
+    enum: ["fixed", "rental", "offer_based"],
+    default: "fixed"
   },
   // 🎯 Kiralama ayarları
   rentalOptions: {
