@@ -1,6 +1,6 @@
 const express = require("express")
 const route = express.Router()
-const { getProducts, addProduct, getProductDetail,getProductBase, deleteProductRequestForm,
+const { getProducts, addProduct,findProductTitle,createproducts, getProductDetail,getProductBase, deleteProductRequestForm,
     deleteProductGallery, deleteProductVariants, deleteProductBasePrice,deleteProductBasePriceItem,getProductGallery,getProductVariants,
     deleteProduct, deleteImageFromGallery, getProductBasePrice,updateProductBasePrice,
     updateProductGallery, updateProductVariants, updateProduct, updateProductRequestForm } = require("../controller/productsController")
@@ -10,6 +10,8 @@ const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 // === 📦 Ürün CRUD ===
 route.post("/", keycloak.protect(), addProduct);
 route.get("/:id", keycloak.protect(), getProducts);
+
+
 
 // === 🧩 Alt Alan Getirme ===
 route.get("/base/:id/:pid", keycloak.protect(), getProductBase);
@@ -33,6 +35,13 @@ route.delete("/base-price/:id/:pid", keycloak.protect(), deleteProductBasePrice)
 route.delete("/base-price/:id/:pid/:prid", keycloak.protect(), deleteProductBasePriceItem);
 
 
+
+
 // === 🖼️ Galeriden Tek Görsel Silme ===
 route.delete("/gallery/:id/:pid/image/:imageid", keycloak.protect(), deleteImageFromGallery);
+
+// ===  Ürün oluşturma Aşamaları ===
+route.post("/findproducttitle", keycloak.protect(), findProductTitle);
+route.post("/createproducts", keycloak.protect(), createproducts);
+
 module.exports = route

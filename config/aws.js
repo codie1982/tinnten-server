@@ -50,4 +50,29 @@ const generateSignedUrl = async (key, expiresIn = 60 * 60) => {
     // Asenkron olarak imzalı URL'yi döndür
     return await getSignedUrl(init(), command, { expiresIn });
 };
-module.exports = { init, setParam, setDownloadParam, PutObjectCommand, GetObjectCommand, generateSignedUrl, setStreamParam }
+const streamToBuffer = async (stream) => {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      stream.on('data', (chunk) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
+  };
+  
+  /**
+   * S3'ten dosyayı buffer olarak çeker
+   * @param {string} key - S3'teki dosya yolu (örneğin: uploads/abc.pdf)
+   * @returns {Buffer}
+   */
+  const getFileBufferFromS3 = async (key) => {
+    const client = init();
+    const command = new GetObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET,
+      Key: key,
+    });
+  
+    const response = await client.send(command);
+    const buffer = await streamToBuffer(response.Body);
+    return buffer;
+  };
+module.exports = { init, setParam, setDownloadParam, PutObjectCommand,getFileBufferFromS3, generateSignedUrl, setStreamParam }

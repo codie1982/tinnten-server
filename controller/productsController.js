@@ -1,19 +1,54 @@
 const asyncHandler = require("express-async-handler");
 const axios = require("axios")
 const validator = require("validator");
+const ExtendTitlesAgent = require("../llm/agents/extendTitleAgent.js")
+const FindProductAgent = require("../llm/agents/findProductFromFileAgent.js")
+const FindFormFieldFromFileAgent = require("../llm/agents/findFormFieldFromFileAgent.js")
+
+const { getFileBufferFromS3 } = require("../config/aws")
+
+const FileParser = require("../utils/Fileparser.js");
+
+
 const Company = require("../mongoModels/companyProfilModel.js")
 const Account = require("../mongoModels/accountModel.js")
 const SystemPackages = require("../mongoModels/systemPackageModel.js")
 const Product = require("../mongoModels/productsModel")
+const FormField = require("../mongoModels/formFieldModel.js")
+const DynamicForm = require("../mongoModels/dynamicFormModel.js")
 const Price = require("../mongoModels/priceModel")
 const Variant = require("../mongoModels/variantsModel")
 const Gallery = require("../mongoModels/galleryModel.js")
 const Image = require("../mongoModels/imagesModel")
 const User = require("../mongoModels/userModel.js")
+const Upload = require("../mongoModels/uploadModel.js")
 const ApiResponse = require("../helpers/response")
 const Keycloak = require("../lib/Keycloak.js");
 
 const AccountManager = require("../helpers/AccountManager.js")
+const MODEL1 = "gpt-3.5-turbo"
+const MODEL2 = "gpt-4o"
+
+const generateSlug = asyncHandler(async (title, uniq = false) => {
+  let baseSlug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  let slug = baseSlug;
+  if (uniq) {
+    let isExist = await Product.findOne({ slug });
+    let i = 0;
+
+    while (isExist) {
+      i++;
+      slug = `${baseSlug}:${i}`;
+      isExist = await Product.findOne({ slug });
+    }
+  }
+  return slug;
+});
 
 /**
  * @desc Yeni bir ürün ekler (alt kırılımlar hariç)
@@ -211,11 +246,14 @@ const addProduct = asyncHandler(async (req, res) => {
       galleryId = newGallery._id;
     }
 
+    let slug = await generateSlug(title)
+
     // === [6] Ürün Kaydı ===
     const newProduct = new Product({
       companyid,
       title: validator.escape(title),
       meta: meta ? validator.escape(meta) : "",
+      slug,
       description: description || "",
       categories,
       redirectUrl: redirectUrl ? [redirectUrl] : [],
@@ -277,6 +315,282 @@ const addProduct = asyncHandler(async (req, res) => {
     });
   }
 });
+/**
+ * @desc Ürünün temel bilgilerini getirir (alt kırılımlar hariç)
+ * @route GET /api/v1/products/:companyid/:productid
+ * @access Private (firma kullanıcısı)
+ */
+const createproducts = asyncHandler(async (req, res) => {
+  try {
+    const { companyid, info } = req.body;
+
+    if (!companyid || !Array.isArray(info) || info.length === 0) {
+      return res.status(400).json(ApiResponse.error(400, "Eksik veya hatalı parametreler.", {}));
+    }
+
+    const access_token = req.kauth.grant.access_token.token;
+    const userInfo = await Keycloak.getUserInfo(access_token);
+    const userkeyid = userInfo.sub;
+
+    let user = await User.findOne({ keyid: userkeyid });
+    if (!user) user = await new User({ keyid: userkeyid }).save();
+    const userid = user._id;
+
+    const isUserInCompany = await Company.exists({
+      _id: companyid,
+      "employees.userid": userid,
+    });
+
+    if (!isUserInCompany) {
+      return res.status(403).json(ApiResponse.error(403, "Bu firmaya erişim yetkiniz yok.", {}));
+    }
+
+    const findProductAgent = new FindProductAgent(MODEL2, 0.5);
+    await findProductAgent.start();
+
+    const productList = [];
+
+    for (const infoProduct of info) {
+      try {
+        const productDefind = `${infoProduct?.title || ""} ${infoProduct?.description || ""}`;
+        const createProduct = await findProductAgent.create(companyid, productDefind);
+
+        if (createProduct?.success === false) {
+          console.warn("⚠️ LLM başarısız ürün cevabı:", createProduct);
+          continue;
+        }
+
+        // === [1] BasePrice kaydet ===
+        const basePriceIds = [];
+        if (Array.isArray(createProduct.basePrice)) {
+          for (const priceItem of createProduct.basePrice) {
+            const priceDoc = new Price({
+              originalPrice: priceItem.originalPrice,
+              discountRate: priceItem.discountRate || 0,
+              currency: priceItem.currency || "TL"
+            });
+            const savedPrice = await priceDoc.save();
+            basePriceIds.push(savedPrice._id);
+          }
+        }
+
+        // === [2] Variants kaydet ===
+        const variantIds = [];
+        if (Array.isArray(createProduct.variants)) {
+          for (const variantItem of createProduct.variants) {
+            const variantPriceIds = [];
+            if (Array.isArray(variantItem.price)) {
+              for (const price of variantItem.price) {
+                const priceDoc = new Price({
+                  originalPrice: price.originalPrice,
+                  discountRate: price.discountRate || 0,
+                  currency: price.currency || "TL"
+                });
+                const savedPrice = await priceDoc.save();
+                variantPriceIds.push(savedPrice._id);
+              }
+            }
+
+            const variantDoc = new Variant({
+              price: variantPriceIds,
+              images: [], // Şimdilik boş
+              attributes: Array.isArray(variantItem.attributes) ? variantItem.attributes : []
+            });
+
+            const savedVariant = await variantDoc.save();
+            variantIds.push(savedVariant._id);
+          }
+        }
+        const vectorTextParts = [
+          createProduct.title,
+          createProduct.meta,
+          createProduct.description,
+          createProduct.categories?.join(' '),
+          createProduct.attributes?.map(attr => `${attr.name}: ${attr.value}`).join(' '),
+        ];
+
+        const vectorText = vectorTextParts
+          .filter(Boolean)
+          .map(text => text.toString().trim())
+          .join(' ')
+          .slice(0, 1000);
+
+        const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
+        let slug = await generateSlug(title)
+        // === [3] Ürünü kaydet ===
+        const nProduct = await new Product({
+          ...createProduct,
+          companyid,
+          slug,
+          basePrice: basePriceIds.length > 0 ? basePriceIds : undefined,
+          variants: variantIds.length > 0 ? variantIds : undefined,
+          vector: vectorResponse.data.vector
+        }).save();
+
+        // === [4] Teklife dayalıysa dinamik form oluştur ===
+        if (createProduct.pricetype === "offer_based") {
+          const formDefind = `${infoProduct?.title || ""} ${createProduct?.description || ""} ${createProduct.attributes?.map(m => `${m.name}: ${m.value}`).join("\n") || ""
+            }`;
+
+          const findFormFieldFromFileAgent = new FindFormFieldFromFileAgent();
+          await findFormFieldFromFileAgent.start();
+          const formFields = await findFormFieldFromFileAgent.create(formDefind);
+
+          const formFieldIds = [];
+          const formName = `${createProduct.title || "Ürün"} için Teklif Formu`;
+          const description = `Bu form, ${createProduct.title || "ürün"} için teklif almak amacıyla oluşturulmuştur.`;
+          for (const field of formFields) {
+            const vectorTextParts = [
+              field.label,
+              field.options?.map(attr => `${attr.label}: ${attr.value}`).join(' '),
+            ];
+
+            const vectorText = vectorTextParts
+              .filter(Boolean)
+              .map(text => text.toString().trim())
+              .join(' ')
+              .slice(0, 1000);
+
+            const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
+            const formFieldDoc = await new FormField({
+              ...field,
+              vector: vectorResponse.data.vector
+
+            }).save();
+            formFieldIds.push(formFieldDoc._id);
+          }
+
+
+
+          const dynamicFormDoc = await new DynamicForm({
+            companyid,
+            formName,
+            description,
+            fields: formFieldIds
+          }).save();
+
+          await Product.findByIdAndUpdate(nProduct._id, { requestForm: dynamicFormDoc._id });
+        }
+
+        productList.push(nProduct);
+
+      } catch (fileErr) {
+        console.error("🚨 Ürün oluşturma hatası:", fileErr.message);
+      }
+    }
+
+    console.log("Oluşturulan ürün/hizmetler", productList)
+    return res.status(200).json(ApiResponse.success(200, "Oluşturulan ürün/hizmetler.", productList));
+  } catch (err) {
+    console.error("❌ createproducts Hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası.", { error: err.message }));
+  }
+});
+/**
+ * @desc Ürünün temel bilgilerini getirir (alt kırılımlar hariç)
+ * @route GET /api/v1/products/:companyid/:productid
+ * @access Private (firma kullanıcısı)
+ */
+const findProductTitle = asyncHandler(async (req, res) => {
+  try {
+    const { companyid, uploads, type } = req.body;
+
+    console.log("companyid, uploads, type", companyid, uploads, type)
+
+    // === [0] Geçerli input kontrolü ===
+    if (!companyid || !Array.isArray(uploads) || uploads.length === 0) {
+      return res.status(400).json(ApiResponse.error(400, "Eksik veya hatalı parametreler.", {}));
+    }
+
+    // === [1] Keycloak kullanıcı doğrulama ===
+    const access_token = req.kauth.grant.access_token.token;
+    const userInfo = await Keycloak.getUserInfo(access_token);
+    const userkeyid = userInfo.sub;
+
+    let user = await User.findOne({ keyid: userkeyid });
+    if (!user) user = await new User({ keyid: userkeyid }).save();
+    const userid = user._id;
+
+    // === [2] Firma erişim kontrolü ===
+    const isUserInCompany = await Company.exists({
+      _id: companyid,
+      "employees.userid": userid,
+    });
+
+    if (!isUserInCompany) {
+      return res.status(403).json(ApiResponse.error(403, "Bu firmaya erişim yetkiniz yok.", {}));
+    }
+
+    // === [3] Agent başlat ===
+    const extendTitleAgent = new ExtendTitlesAgent();
+    await extendTitleAgent.start(MODEL2, 0.4);
+
+    const allTitles = [];
+    // === [4] Upload listesi üzerinden dön ===
+    for (const item of uploads) {
+      if (type === "upload") {
+        if (!item?.uploadid) continue;
+        try {
+          const upload = await Upload.findOne({ uploadid: item.uploadid });
+          if (!upload || !upload.data?.Key) {
+            console.warn("❗ Dosya bulunamadı:", item.uploadid);
+            continue; // return yerine devam, diğer dosyalar da işlenebilsin
+          }
+          const fileBuffer = await getFileBufferFromS3(upload.data.Key);
+          const mimeType = upload?.file?.upload; // örnek
+          try {
+            const content = await FileParser.parse(fileBuffer, mimeType);
+            console.log("📄 İçerik:", content);
+          } catch (err) {
+            console.error("⚠️ Dosya işleme hatası:", err.message);
+          }
+
+          if (process.env.NODE_ENV !== "production") {
+            console.log(`📄 PDF içeriği (ilk 4000 karakter) | uploadid: ${item.uploadid}`);
+            console.log(pdfData.text);
+          }
+
+          const titles = await extendTitleAgent.find(userInfo, content);
+          if (Array.isArray(titles)) {
+            allTitles.push(...titles);
+          }
+        } catch (fileErr) {
+          console.error(`🚨 PDF işleme hatası | uploadid: ${item.uploadid}`, fileErr);
+        }
+      } else if (type === "website") {
+        try {
+          let scrwurl = item.url
+          const scraper = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/scraper", { url: scrwurl });
+          const titles = await extendTitleAgent.find(userInfo, scraper.data.markdown);
+          if (Array.isArray(titles)) {
+            allTitles.push(...titles);
+          }
+        } catch (error) {
+          console.error(`🚨 Web site Tarama işlemi hata: ${item.uploadid}`, error);
+        }
+      } else if (type === "prompt") {
+        try {
+          let description = item.description
+          const titles = await extendTitleAgent.find(userInfo, description);
+          if (Array.isArray(titles)) {
+            allTitles.push(...titles);
+          }
+        } catch (error) {
+          console.error(`🚨 Web site Tarama işlemi hata: ${item.uploadid}`, error);
+        }
+
+      } else {
+        console.warn("⚠️ Henüz desteklenmeyen içerik türü:", type);
+      }
+    }
+
+    return res.status(200).json(ApiResponse.success(200, "Bulunan ürün bilgileri.", allTitles));
+  } catch (err) {
+    console.error("❌ findProductTitle Hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası.", { error: err.message }));
+  }
+});
+
 /**
  * @desc Belirli bir firmaya ait ürünleri listeler (pagination destekli)
  * @route GET /api/v1/products/:companyid
@@ -1087,7 +1401,7 @@ const deleteImageFromGallery = asyncHandler(async (req, res) => {
   return res.status(200).json(ApiResponse.success(200, "Görsel galeriden silindi.", { imageid }));
 });
 module.exports = {
-  getProducts, addProduct, getProductDetail, getProductBase, deleteProductRequestForm, getProductVariants,
+  getProducts, addProduct, findProductTitle, createproducts, getProductDetail, getProductBase, deleteProductRequestForm, getProductVariants,
   deleteProductGallery, deleteProductVariants, deleteProductBasePrice, deleteProductBasePriceItem, getProductGallery,
   deleteProduct, deleteImageFromGallery, getProductBasePrice, updateProductBasePrice,
   updateProductGallery, updateProductVariants, updateProduct, updateProductRequestForm

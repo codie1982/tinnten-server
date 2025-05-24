@@ -1,7 +1,9 @@
 require("dotenv").config()
 require("colors")
+require("./config/instrument.js");
 const path = require('path');
 const compression = require('compression');
+const Sentry = require("@sentry/node");
 const express = require("express")
 const fileUpload = require('express-fileupload');
 const { ObjectId } = require("mongodb");
@@ -11,11 +13,12 @@ const cookieParser = require('cookie-parser');
 
 
 
+
 const { errorHandler } = require("./middleware/errorHandler")
 const { keycloak, memoryStore } = require('./helpers/keycloak-config');
 const Keycloak = require("./lib/Keycloak.js");
 const { sendEmail } = require("./services/mailServices")
-const { initSocket } = require('./lib/WSSocket');
+//const { initSocket } = require('./lib/WSSocket');
 const socketManager = require("./lib/SocketManager.js");
 
 const cors = require('cors');
@@ -37,119 +40,38 @@ const server = http.createServer(app);
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
-const wss = initSocket(server);
-if (!wss) {
-  console.error("[server.js] WebSocket server başlatılamadı!");
-  process.exit(1);
-}
+// The error handler must be registered before any other error middleware and after all controllers
+Sentry.setupExpressErrorHandler(app);
 
-wss.on("connection", async (ws, req) => {
-  console.log("[server.js] Yeni WebSocket bağlantısı:");
-  const access_token = new URLSearchParams(req.url.split("?")[1]).get("token");
+const allowedOrigins = [
+  "https://tinnten.com",
+  "https://www.tinnten.com",
+  "http://localhost:3000"
+];
+// Optional fallthrough error handler
+app.use(function onError(err, req, res, next) {
+  // The error id is attached to `res.sentry` to be returned
+  // and optionally displayed to the user for support.
+  res.statusCode = 500;
+  res.end(res.sentry + "\n");
+});
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
 
-  if (!access_token) {
-    console.error("[server.js] Token bulunamadı");
-    ws.send(JSON.stringify({ event: "error", data: { message: "Token eksik" } }));
-    ws.close(1008, "Token eksik");
-    return;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
-  try {
-    const userkey = await Keycloak.getUserInfo(access_token);
-    console.log("[server.js] Keycloak doğrulama başarılı:", userkey.sub);
-    const user = await User.findOne({ keyid: userkey.sub });
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
-    if (!user) {
-      console.error("[server.js] Kullanıcı bulunamadı");
-      ws.send(JSON.stringify({ event: "error", data: { message: "Kullanıcı bulunamadı" } }));
-      ws.close(1008, "Kullanıcı bulunamadı");
-      return;
-    }
-
-    const userid = user._id.toString();
-    ws.userid = userid;
-    ws.isAuthenticated = false;
-
-    await socketManager.setUserSocket(userid, ws);
-
-    console.log(`[server.js] Kullanıcı bağlandı: ${userid}`);
-
-    ws.on("message", async (message) => {
-      try {
-        const { event, data: payload } = JSON.parse(message);
-        console.log("[server.js] Mesaj alındı:", { event, payload, userid });
-
-        if (event === "identify") {
-          const receivedUserid = payload.userid;
-          if (receivedUserid && receivedUserid === ws.userid) {
-            await socketManager.updateUserAuth(userid, true);
-            console.log(`[server.js] Kullanıcı doğrulandı: ${userid}`);
-            ws.send(JSON.stringify({ event: "identify_success", data: { message: "Doğrulama başarılı" } }));
-          } else {
-            console.error("[server.js] Geçersiz userid:", { received: payload.userid, expected: ws.userid });
-            ws.send(JSON.stringify({ event: "error", data: { message: "Geçersiz userid" } }));
-            ws.close(1008, "Geçersiz userid");
-          }
-        } else if (event === "ping") {
-          ws.send(JSON.stringify({ event: "pong" }));
-          console.log("[server.js] Pong gönderildi:", userid);
-        } else {
-          console.warn("[server.js] Bilinmeyen mesaj:", event, "from:", userid);
-        }
-      } catch (error) {
-        console.error("[server.js] Mesaj işleme hatası:", error.message, "from:", userid);
-        ws.send(JSON.stringify({ event: "error", data: { message: "Mesaj işlenemedi" } }));
-      }
-    });
-
-    ws.on("close", async (code) => {
-      console.log(`[server.js] Kullanıcı ayrıldı: ${userid}, Kod: ${code}`);
-      await socketManager.deleteUserSocket(userid);
-    });
-
-    ws.on("error", async (error) => {
-      console.error("[server.js] WebSocket hatası:", error.message, "from:", userid);
-      await socketManager.deleteUserSocket(userid);
-    });
-  } catch (error) {
-    console.error("[server.js] Token doğrulama hatası:", error.message);
-    ws.send(JSON.stringify({ event: "error", data: { message: `Geçersiz token: ${error.message}` } }));
-    ws.close(1008, "Geçersiz token");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
   }
+
+  next();
 });
-
-wss.on("error", (error) => {
-  console.error("[server.js] WebSocket server hatası:", error);
-});
-
-if (process.env.NODE_ENV === "production") {
-  const allowedOrigins = [
-    "https://tinnten.com",
-    "https://www.tinnten.com"
-  ];
-
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-    }
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
-    }
-
-    next();
-  });
-}
-if (process.env.NODE_ENV !== "production") {
-  app.use(cors({
-    origin: "http://localhost:3000",
-    credentials: true
-  }));
-}
 // Middleware
 app.use(fileUpload({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 GB aws sunucusunun bir kerede max upload miktarı.
@@ -213,155 +135,6 @@ app.get('/images/cover', (req, res) => {
 
 
 if (process.env.NODE_ENV != "production") {
-  app.post('/addproducts', async (req, res) => {
-    try {
-      const csvFilePath = path.join(__dirname, 'assets', 'production_info.csv');
-      const results = [];
-      const maxRows = 200; // İşlenecek maksimum satır sayısı (örnek için)
-      const skippedRows = []; // Atlanan satırları tutmak için dizi
-      const insertedProducts = []; // Eklenen ürünleri saklamak için
-
-      const readStream = fs.createReadStream(csvFilePath);
-      readStream
-        .pipe(csv({ separator: ',', quote: '"' }))
-        .on('data', (row) => {
-          results.push(row);
-        })
-        .on('end', async () => {
-          console.log('CSV dosyası başarıyla işlendi.');
-
-          // Her satırı sıralı olarak işle
-          for (let i = 0; i < results.length && i < maxRows == 0 ? results.length : maxRows; i++) {
-            const row = results[i];
-
-            // Gerekli alanlar listesi
-            const requiredFields = [
-              "Ürün İsmi",
-              "Ürün Fiyatı",
-              "Ürün Resmi",
-              "Meta Bilgisi",
-              "Ürün Marka",
-              "Ürün Açıklaması",
-              "URL"
-            ];
-
-            // Eksik alanları kontrol et
-            let missingFields = [];
-            requiredFields.forEach(field => {
-              if (!row[field] || !row[field].toString().trim()) {
-                missingFields.push(field);
-              }
-            });
-            if (missingFields.length > 0) {
-              console.warn(`Satır ${i} eksik alanlara sahip: ${missingFields.join(", ")}. Atlanıyor.`);
-              skippedRows.push({
-                row,
-                error: `Eksik alanlar: ${missingFields.join(", ")}`
-              });
-              continue;
-            }
-
-            const title = row["Ürün İsmi"] ? row["Ürün İsmi"].trim() : "";
-            if (!title) continue;
-
-            // Aynı başlığa sahip ürün var mı kontrolü
-            /* const existingProduct = await ProductModel.findOne({ title: title });
-            if (existingProduct) {
-              console.log(`Duplicate product found for title "${title}". Skipping.`);
-              continue;
-            }
-   */
-            try {
-              // Vektör metnini oluştur
-              const vectorText = `${row["Meta Bilgisi"]} - ${row["Ürün İsmi"]} - ${row["Ürün Marka"]} - ${row["Ürün Açıklaması"]} - ${row["URL"]}`;
-              const vectorResponse = await axios.post(
-                process.env.EMBEDDING_URL + "/api/v10/llm/vector",
-                { text: vectorText }
-              );
-              console.log("vectorResponse", vectorResponse.data)
-
-
-              /*   // Fiyat dönüşümü
-                let priceString = row["Ürün Fiyatı"] || "";
-                priceString = priceString.replace(/"/g, '');
-                priceString = priceString.replace('TL', '').trim().replace(',', '.');
-                const originalPrice = parseFloat(priceString);
-           
-                if (isNaN(originalPrice)) {
-                  console.error(`Fiyat dönüştürülemedi: Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`);
-                  skippedRows.push({
-                    row,
-                    error: `Fiyat değeri NaN. Orijinal: ${row["Ürün Fiyatı"]}, temizlenmiş: ${priceString}`
-                  });
-                  continue;
-                }
-           
-                // İlgili modellerden dokümanlar oluşturma
-                const priceDoc = await PriceModel.create({
-                  originalPrice: originalPrice,
-                  currency: "TL"
-                });
-           
-                const imageDoc = await ImageModel.create({
-                  type: 'external',
-                  path: row["Ürün Resmi"]
-                });
-           
-                const galleryDoc = await GalleryModel.create({
-                  title: row["Ürün İsmi"],
-                  description: row["Ürün Açıklaması"],
-                  images: [imageDoc._id]
-                });
-           
-                const productDoc = {
-                  title: row["Ürün İsmi"],
-                  meta: row["Meta Bilgisi"],
-                  description: row["Ürün Açıklaması"],
-                  categories: [],
-                  basePrice: [priceDoc._id],
-                  variants: [],
-                  gallery: galleryDoc._id,
-                  redirectUrl: [row["URL"]],
-                  vector: vectorResponse.data.vector
-                };
-           
-                // Ürünü veritabanına ekle
-                const newProduct = await ProductModel.create(productDoc);
-                insertedProducts.push(newProduct);
-                console.log(`Ürün eklendi: ${title}`); */
-            } catch (err) {
-              console.error(`Satır işlenirken hata oluştu (Title: ${title}):`, err.message);
-              skippedRows.push({
-                row,
-                error: err.message
-              });
-            }
-          }
-
-          // Atlanan satırları dosyaya kaydet
-          const skippedRowsPath = path.join(__dirname, 'skipped_rows.json');
-          fs.writeFileSync(skippedRowsPath, JSON.stringify(skippedRows, null, 2));
-
-          if (insertedProducts.length) {
-            res.status(200).json({ message: 'Products added successfully', data: insertedProducts });
-          } else {
-            res.status(500).json({ message: 'No products were added.' });
-          }
-        })
-        .on('error', (err) => {
-          console.error('CSV dosyası işlenirken hata oluştu:', err);
-          res.status(500).json({ message: 'CSV dosyası işlenirken hata oluştu' });
-        });
-
-
-    } catch (error) {
-      console.error('Error fetching data from local network:', error);
-      res.status(500).send('Error fetching data from local network');
-    }
-
-
-  });
-
   app.post("/test-mail", async (req, res) => {
     try {
       const send = await sendEmail("standart", "granitjeofizik@gmail.com", "Konu", { data: "mesaj" })
@@ -387,12 +160,137 @@ app.get("/api", (req, res) => {
 });
 app.use(errorHandler)
 
+console.log("[server.js] WebSocket sunucusu başlatılıyor. Zaman:", new Date().toISOString());
+const wss = socketManager.initSocket(server);
 
+if (!wss) {
+  console.error("[server.js] Hata: WebSocket server başlatılamadı! Zaman:", new Date().toISOString());
+  process.exit(1);
+}
+console.log("[server.js] WebSocket sunucusu başarıyla başlatıldı. Zaman:", new Date().toISOString());
+wss.on("connection", async (ws, req) => {
+  //console.log("[server.js] Yeni WebSocket bağlantısı alındı: URL:", req.url, "Headers:", req.headers, "Zaman:", new Date().toISOString());
+
+  ws.on("message", async (message) => {
+    //console.log("[server.js] Yeni mesaj alındı: Ham veri:", message.toString(), "Zaman:", new Date().toISOString());
+    try {
+      const { event, data: payload } = JSON.parse(message);
+      //console.log("[server.js] Mesaj ayrıştırıldı: Event:", event, "Payload:", payload, "Zaman:", new Date().toISOString());
+
+      if (event === "identify") {
+        const receivedUserid = payload.userid;
+        const token = payload.token;
+        console.log(
+          "[server.js] Identify işlemi: Alınan UserID:",
+          receivedUserid,
+          "Token:",
+          token ? "Mevcut" : "Eksik",
+          "Zaman:",
+          new Date().toISOString()
+        );
+
+        if (!token) {
+          console.error("[server.js] Hata: Token eksik. Zaman:", new Date().toISOString());
+          ws.send(JSON.stringify({ event: "error", data: { message: "Token eksik" } }));
+          ws.close(1008, "Token eksik");
+          return;
+        }
+
+        try {
+          console.log("[server.js] Keycloak ile token doğrulanıyor. Zaman:", new Date().toISOString());
+          const userkey = await Keycloak.getUserInfo(token);
+          console.log("[server.js] Keycloak doğrulama başarılı: Kullanıcı ID:", userkey.sub, "Zaman:", new Date().toISOString());
+
+          const user = await User.findOne({ keyid: userkey.sub });
+          if (!user) {
+            console.error("[server.js] Hata: Kullanıcı bulunamadı, keyid:", userkey.sub, "Zaman:", new Date().toISOString());
+            ws.send(JSON.stringify({ event: "error", data: { message: "Kullanıcı bulunamadı" } }));
+            ws.close(1008, "Kullanıcı bulunamadı");
+            return;
+          }
+
+          const userid = user._id.toString();
+          ws.userid = userid;
+          ws.isAuthenticated = false;
+
+          if (receivedUserid && receivedUserid === userid) {
+            await socketManager.setUserSocket(userid, ws);
+            console.log("[server.js] Kullanıcı soketi kaydedildi: ID:", userid, "Zaman:", new Date().toISOString());
+            await socketManager.updateUserAuth(userid, true);
+            console.log(`[server.js] Kullanıcı doğrulandı: ${userid}. Zaman:`, new Date().toISOString());
+            ws.send(JSON.stringify({ event: "identify_success", data: { message: "Doğrulama başarılı" } }));
+          } else {
+            console.error(
+              "[server.js] Hata: Geçersiz userid, Alınan:",
+              receivedUserid,
+              "Beklenen:",
+              userid,
+              "Zaman:",
+              new Date().toISOString()
+            );
+            ws.send(JSON.stringify({ event: "error", data: { message: "Geçersiz userid" } }));
+            ws.close(1008, "Geçersiz userid");
+          }
+        } catch (error) {
+          console.error("[server.js] Hata: Token doğrulama hatası:", error.message, error.stack, "Zaman:", new Date().toISOString());
+          ws.send(JSON.stringify({ event: "error", data: { message: `Geçersiz token: ${error.message}` } }));
+          ws.close(1008, "Geçersiz token");
+        }
+      } else if (event === "ping") {
+        console.log("[server.js] Ping alındı, pong gönderiliyor. Zaman:", new Date().toISOString());
+        ws.send(JSON.stringify({ event: "pong" }));
+        console.log("[server.js] Pong gönderildi. Zaman:", new Date().toISOString());
+      } else {
+        console.warn("[server.js] Uyarı: Bilinmeyen mesaj tipi:", event, "Zaman:", new Date().toISOString());
+        ws.send(JSON.stringify({ event: "error", data: { message: `Bilinmeyen mesaj tipi: ${event}` } }));
+      }
+    } catch (error) {
+      console.error(
+        "[server.js] Hata: Mesaj işleme hatası:",
+        error.message,
+        "Ham veri:",
+        message.toString(),
+        "Zaman:",
+        new Date().toISOString()
+      );
+      ws.send(JSON.stringify({ event: "error", data: { message: "Mesaj işlenemedi: " + error.message } }));
+    }
+  });
+
+  ws.on("close", async (code, reason) => {
+    console.log(
+      `[server.js] Kullanıcı bağlantısı kapandı: Kod: ${code}, Sebep: ${reason || "Belirtilmemiş"}`,
+      "Zaman:",
+      new Date().toISOString()
+    );
+    if (ws.userid) {
+      await socketManager.deleteUserSocket(ws.userid);
+      console.log(`[server.js] Kullanıcı soketi silindi: UserID: ${ws.userid}. Zaman:`, new Date().toISOString());
+    }
+  });
+
+  ws.on("error", async (error) => {
+    console.error("[server.js] Hata: WebSocket hatası:", error.message, error.stack, "Zaman:", new Date().toISOString());
+    if (ws.userid) {
+      await socketManager.deleteUserSocket(ws.userid);
+      console.log(`[server.js] Kullanıcı soketi silindi (hata sonrası): UserID: ${ws.userid}. Zaman:`, new Date().toISOString());
+    }
+  });
+});
+
+wss.on("error", (error) => {
+  console.error("[server.js] Hata: WebSocket server hatası:", error.message, error.stack, "Zaman:", new Date().toISOString());
+});
+if (process.env.NODE_ENV !== "production")
+  app.get("/debug-sentry", function mainHandler(req, res) {
+    throw new Error("My first Sentry error!");
+  });
 // Sadece direkt çalıştırıldığında dinle
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Started on Port : ${PORT}`);
-  });
-}
 
-module.exports = app; // 👈 Supertest ile test için sadece app objesi export edilir
+}
+server.listen(PORT, () => {
+  console.log(`Started on Port : ${PORT}`);
+});
+
+//module.exports = app; // 👈 Supertest ile test için sadece app objesi export edilir

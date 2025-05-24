@@ -57,6 +57,18 @@ const addForm = asyncHandler(async (req, res) => {
   const fieldObjectIds = [];
 
   for (const field of fields) {
+    const vectorTextParts = [
+      field.label,
+      field.options?.map(attr => `${attr.label}: ${attr.value}`).join(' '),
+    ];
+
+    const vectorText = vectorTextParts
+      .filter(Boolean)
+      .map(text => text.toString().trim())
+      .join(' ')
+      .slice(0, 1000);
+
+    const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
     const newField = new FormField({
       label: field.label,
       type: field.type,
@@ -65,7 +77,8 @@ const addForm = asyncHandler(async (req, res) => {
       options: field.options || [],
       validation: field.validation || {},
       dependencies: field.dependencies || [],
-      locationType: field.locationType || "none"
+      locationType: field.locationType || "none",
+      vector: vectorResponse.data.vector
     });
 
     await newField.save();
@@ -155,38 +168,107 @@ const getFormDetail = asyncHandler(async (req, res) => {
   return res.status(200).json(ApiResponse.success(200, "Form detayları başarıyla getirildi.", form));
 });
 /**
- * @desc Form adını veya açıklamasını günceller
+ * @desc Form adını, açıklamasını ve alanlarını günceller
  * @route PUT /api/v10/forms/:companyid/:formid
- * @access Private
+ * @access Private (firma kullanıcısı)
  */
 const updateForm = asyncHandler(async (req, res) => {
-  const { companyid, formid } = req.params;
-  const { formName, description } = req.body;
+  try {
+    const { companyid, formid } = req.params;
+    const { formName, description, fields } = req.body;
 
-  const access_token = req.kauth.grant.access_token.token;
-  const userInfo = await Keycloak.getUserInfo(access_token);
-  const userkeyid = userInfo.sub;
+    // ✅ 1. Girdi Doğrulama
+    if (!formName || !fields || !Array.isArray(fields)) {
+      console.warn("Eksik veya hatalı veri:", { formName, fields });
+      return res.status(400).json(ApiResponse.error(400, "Form adı ve geçerli field dizisi gereklidir."));
+    }
 
-  const user = await User.findOne({ keyid: userkeyid });
-  if (!user) return res.status(403).json(ApiResponse.error(403, "Kullanıcı bulunamadı."));
+    // 🔐 2. Kullanıcı Doğrulama
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      console.error("Token eksik");
+      return res.status(401).json(ApiResponse.error(401, "Kimlik doğrulama başarısız."));
+    }
 
-  const isUserInCompany = await Company.exists({
-    _id: companyid,
-    "employees.userid": user._id
-  });
-  if (!isUserInCompany) {
-    return res.status(403).json(ApiResponse.error(403, "Yetkiniz yok."));
+    const userInfo = await Keycloak.getUserInfo(access_token);
+    const userkeyid = userInfo?.sub;
+    if (!userkeyid) {
+      console.error("UserInfo alınamadı:", userInfo);
+      return res.status(401).json(ApiResponse.error(401, "Geçersiz kullanıcı bilgisi."));
+    }
+
+    const user = await User.findOne({ keyid: userkeyid });
+    if (!user) {
+      console.warn("Kullanıcı bulunamadı:", userkeyid);
+      return res.status(403).json(ApiResponse.error(403, "Kullanıcı bulunamadı."));
+    }
+
+    const isUserInCompany = await Company.exists({
+      _id: companyid,
+      "employees.userid": user._id
+    });
+    if (!isUserInCompany) {
+      console.warn("Kullanıcı firmaya ait değil:", { companyid, userid: user._id });
+      return res.status(403).json(ApiResponse.error(403, "Bu firmada işlem yetkiniz yok."));
+    }
+
+    // 🔍 3. Form Doğrulama
+    const form = await DynamicForm.findOne({ _id: formid, companyid });
+    if (!form) {
+      console.warn("Form bulunamadı:", { formid, companyid });
+      return res.status(404).json(ApiResponse.error(404, "Form bulunamadı."));
+    }
+
+    // ✏️ 4. Form ad ve açıklama güncellemesi
+    form.formName = formName || form.formName;
+    form.description = description || form.description;
+
+    // 🔁 5. Field güncellemeleri
+    const updatedFieldIds = [];
+
+    for (const field of fields) {
+      const vectorTextParts = [
+        field.label,
+        field.options?.map(attr => `${attr.label}: ${attr.value}`).join(' '),
+      ];
+
+      const vectorText = vectorTextParts
+        .filter(Boolean)
+        .map(text => text.toString().trim())
+        .join(' ')
+        .slice(0, 1000);
+
+      const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
+      try {
+        if (field._id) {
+          const updated = await FormField.findByIdAndUpdate(field._id, { $set: { ...field, vector: vectorResponse.data.vector } }, { new: true });
+          if (updated) updatedFieldIds.push(updated._id);
+          else console.warn("Field güncellenemedi:", field._id);
+        } else {
+          // Yeni alan eklenirken _id varsa sil
+          if (field._id === null || field._id === undefined) {
+            delete field._id;
+          }
+
+          const newField = new FormField({ ...field, vector: vectorResponse.data.vector });
+          await newField.save();
+          updatedFieldIds.push(newField._id);
+        }
+      } catch (fieldError) {
+        console.error("FormField işlem hatası:", field, fieldError);
+      }
+    }
+
+    // 🔗 6. Field ID'lerini form'a ata
+    form.fields = updatedFieldIds;
+    await form.save();
+
+    return res.status(200).json(ApiResponse.success(200, "Form başarıyla güncellendi.", form));
+
+  } catch (error) {
+    console.error("🔥 updateForm genel hata:", error);
+    return res.status(500).json(ApiResponse.error(500, "Form güncelleme sırasında beklenmeyen bir hata oluştu.", error.message));
   }
-
-  const form = await DynamicForm.findOne({ _id: formid, companyid });
-  if (!form) return res.status(404).json(ApiResponse.error(404, "Form bulunamadı."));
-
-  if (formName) form.formName = formName;
-  if (description) form.description = description;
-
-  await form.save();
-
-  return res.status(200).json(ApiResponse.success(200, "Form güncellendi.", form));
 });
 /**
  * @desc Formu ve bağlı tüm field’ları siler

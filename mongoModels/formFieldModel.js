@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 // 📄 Form Alanı (Field) Şeması
 const formFieldSchema = new mongoose.Schema({
   label: { type: String, required: true },                      // Alan adı (örn: "Zemin Türü")
-
+  uuid: { type: String, required: true },         
   type: {
     type: String,
     enum: ["text", "textarea", "number", "date", "dropdown", "checkbox", "radio", "file"],
@@ -47,6 +47,7 @@ const formFieldSchema = new mongoose.Schema({
     type: String,
     enum: ["point", "area", "none"],
     default: "none"
-  }
+  },
+  vector: { type: Array },
 }, { timestamps: true });
 module.exports = mongoose.model('formfield', formFieldSchema);

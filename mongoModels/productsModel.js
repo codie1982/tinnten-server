@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const productSchema = new mongoose.Schema({
   companyid: { type: mongoose.Schema.Types.ObjectId, ref: "companyprofiles" },
   title: { type: String, required: true },
+  slug:{ type: String, required: true },
+
   meta: { type: String },
   description: { type: String },
   categories: [{ type: String }],
@@ -42,4 +44,5 @@ const productSchema = new mongoose.Schema({
     { name: String, value: String }
   ]
 }, { timestamps: true });
+
 module.exports = mongoose.model('products', productSchema);

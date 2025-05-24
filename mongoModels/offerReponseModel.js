@@ -12,4 +12,4 @@ const offerResponseSchema = new mongoose.Schema({
   estimatedStartDate: { type: Date, required: true },                                           // Tahmini başlama tarihi
   estimatedEndDate: { type: Date, required: true },                                             // Tahmini bitiş tarihi                                               // Son güncellenme tarihi
 }, { timestamps: true });
-module.exports = mongoose.model('offerresponse', offerResponseSchema);;
+module.exports = mongoose.model('offerresponse', offerResponseSchema);

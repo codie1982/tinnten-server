@@ -421,7 +421,7 @@ const detail = asyncHandler(async (req, res) => {
         ...redisData.base, summary: redisData.summary, messages: redisData.messages
       })
 
-      console.log("responseData FromRedis", redisData.messages)
+      //console.log("responseData FromRedis", redisData.messages)
     } else {
       fromRedis = false;
       // Redis'te yoksa, MongoDB'den al

@@ -73,6 +73,7 @@ class ResponseAgent extends BaseAgent {
   async sendResponseStream(mcpMessage, onTokenCallback) {
     console.log(`[ResponseAgent] MCP stream başlatılıyor, model: ${this.model_name}`);
     return await this.sendAgentCompletionStream(mcpMessage, (token) => {
+      console.log(`[ResponseAgent] MCP Strema token, model: ${JSON.stringify(token)}`);
       onTokenCallback({ ...token, delta: { ...token.delta, content: token.delta.content } });
     });
   }

@@ -109,6 +109,7 @@ const uploadProfilImage = asyncHandler(async (req, res) => {
       upload_size: await convertUnit(file.size, "b", "kb"),
       upload_unit: "kb",
       data,
+      file,
       success: true,
     }).save();
 
@@ -221,6 +222,7 @@ const uploadByCompany = asyncHandler(async (req, res) => {
         upload_size: await convertUnit(file.size, "b", "kb"),
         upload_unit: "kb",
         data,
+        file,
         success: true,
       }).save();
 
@@ -250,6 +252,7 @@ const uploadByCompany = asyncHandler(async (req, res) => {
         upload_size: await convertUnit(file.size, "b", "kb"),
         upload_unit: "kb",
         data: null,
+        file,
         error: err,
         success: false,
       }).save();
