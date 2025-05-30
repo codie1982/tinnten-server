@@ -129,9 +129,8 @@ const getForms = asyncHandler(async (req, res) => {
 
   // === [3] Formları çek
   const forms = await DynamicForm.find({ companyid })
-    .populate({ path: "fields", model: "formfield" })
-    .sort({ createdAt: -1 });
-
+    .populate({ path: "fields", model: "formfield",select: "-vector" })
+    .sort({ createdAt: -1 })
   if (!forms.length) {
     return res.status(200).json(ApiResponse.error(404, "Bu firmaya ait form bulunamadı.", []));
   }
@@ -159,7 +158,7 @@ const getFormDetail = asyncHandler(async (req, res) => {
   // === [3] Formu detaylı çek
   const form = await DynamicForm.findOne({
     _id: formid,
-  }).populate({ path: "fields", model: "formfield" });
+  }).populate({ path: "fields", model: "formfield",select: "-vector" });
 
   if (!form) {
     return res.status(404).json(ApiResponse.error(404, "Form bulunamadı."));

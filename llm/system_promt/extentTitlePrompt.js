@@ -1,5 +1,5 @@
 
-const systemPrompt = () => {
+const systemPrompt = (description) => {
     return new Promise((resolve, reject) => {
         let context = `
                         SEN TINNTEN’İN ÜRUN/HIZMET ÇIKARIM MOTORUSUN.
@@ -24,6 +24,6 @@ const systemPrompt = () => {
     })
 }
 
-module.exports = async () => {
-    return systemPrompt()
+module.exports = async (description) => {
+    return systemPrompt(description)
 }

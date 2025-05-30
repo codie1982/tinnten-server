@@ -571,6 +571,7 @@ const deleteConversation = asyncHandler(async (req, res) => {
   const access_token = req.kauth.grant.access_token.token;
   const userkey = await Keycloak.getUserInfo(access_token);
   const user = await User.findOne({ keyid: userkey.sub });
+  let userid = user._id;
   const { conversationid } = req.query;
   const manager = new ConversationRedisManager();
   try {

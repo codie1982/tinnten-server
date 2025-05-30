@@ -10,7 +10,7 @@ class FindFormFieldFromFileAgent extends BaseAgent {
 
   async create(human_message) {
     try {
-      console.log("[FindProduct] Fetching intent system prompt...");
+      console.log("[FindFormFieldFromFileAgent] Fetching intent system prompt...");
       const system_message = await findFormFieldPrompt();
 
       // MCP mesajı oluştur
@@ -31,20 +31,20 @@ class FindFormFieldFromFileAgent extends BaseAgent {
         false // Stream kullanılmıyor
       );
 
-      console.log("[FindProduct] Sending MCP chat completion request...");
+      console.log("[FindFormFieldFromFileAgent] Sending MCP chat completion request...");
       const response = await this.sendAgentCompletion(mcpMessage);
 
-      console.log("[FindProduct] Completion response received:", response);
+      console.log("[FindFormFieldFromFileAgent] Completion response received:", response);
 
       // MCP yanıtından içeriği al
       const rawResponse = response.messages[0].content;
       // JSON’u parse et
       const parsedResponse = this.cleanJSON(rawResponse);
-      console.log("[FindProduct] Parsed response:", parsedResponse);
+      console.log("[FindFormFieldFromFileAgent] Parsed response:", parsedResponse);
 
       return parsedResponse;
     } catch (error) {
-      console.error("[FindProduct] ❌ Ürün oluşturma hatası:", error.message);
+      console.error("[FindFormFieldFromFileAgent] ❌ Ürün oluşturma hatası:", error.message);
 
       return {
         success: false,

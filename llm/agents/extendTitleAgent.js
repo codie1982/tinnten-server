@@ -2,16 +2,15 @@
 const extentTitlesPrompt = require("../system_promt/extentTitlePrompt.js");
 const BaseAgent = require("./BaseAgent.js");
 
-
 class ExtendTitlesAgent extends BaseAgent {
   constructor(model = "gpt-3.5-turbo", temperature = 0.2) {
     super(model, temperature);
   }
 
-  async find(user, human_message,maxChars = 4000) {
+  async find(user, human_message, maxChars = 4000, description = false) {
     try {
-      console.log("[FindProduct] Fetching intent system prompt...");
-      const system_message = await extentTitlesPrompt();
+      console.log("[ExtendTitlesAgent] Fetching intent system prompt...");
+      const system_message = await extentTitlesPrompt(description);
 
       // MCP mesajı oluştur
       const mcpMessage = this.createMCPMessage(
@@ -24,27 +23,27 @@ class ExtendTitlesAgent extends BaseAgent {
           },
           {
             role: "user",
-            content: this.prepareLLMContext(human_message,maxChars),
+            content: this.prepareLLMContext(human_message, maxChars),
             timestamp: new Date().toISOString(),
           },
         ],
         false // Stream kullanılmıyor
       );
 
-      console.log("[FindProduct] Sending MCP chat completion request...");
+      console.log("[ExtendTitlesAgent] Sending MCP chat completion request...");
       const response = await this.sendAgentCompletion(mcpMessage);
 
-      console.log("[FindProduct] Completion response received:", response);
+      console.log("[ExtendTitlesAgent] Completion response received:", response);
 
       // MCP yanıtından içeriği al
       const rawResponse = response.messages[0].content;
       // JSON’u parse et
       const parsedResponse = this.cleanJSON(rawResponse);
-      console.log("[FindProduct] Parsed response:", parsedResponse);
+      console.log("[ExtendTitlesAgent] Parsed response:", parsedResponse);
 
       return parsedResponse;
     } catch (error) {
-      console.error("[FindProduct] Intent analiz hatası:", error);
+      console.error("[ExtendTitlesAgent] Intent analiz hatası:", error);
       return [
         {
           intent: "chat",

@@ -91,8 +91,35 @@ class ProductsDB extends BaseDB {
     async recover(query) {
         throw new Error("MongoDB: Silinen ürünleri geri getirme desteklenmiyor!");
     }
-
-    async search(vector, limit) {
+    async search(query) {
+        try {
+            const agg = [
+                {
+                    $search:
+                    {
+                        text: {
+                            query: query,
+                            path: ["title", "description", "categories"],
+                        },
+                    }
+                },
+                {
+                    $limit: 3,
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        title: 1,
+                    },
+                },
+            ];
+            const result = Product.aggregate(agg);
+            return result;
+        } catch (error) {
+            throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
+        }
+    }
+    async searchVector(vector, limit) {
         //vector boyutu 768 model: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
         try {
             const agg = [

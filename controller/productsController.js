@@ -49,6 +49,16 @@ const generateSlug = asyncHandler(async (title, uniq = false) => {
   }
   return slug;
 });
+function cleanBracketedLines(text) {
+  // Metni satırlara ayır
+  const lines = text.split('\n');
+
+  // Köşeli parantez içermeyen satırları filtrele
+  const cleanedLines = lines.filter(line => !line.includes('[') && !line.includes(']'));
+
+  // Temizlenmiş satırları birleştir ve geri döndür
+  return cleanedLines.join('\n');
+}
 
 /**
  * @desc Yeni bir ürün ekler (alt kırılımlar hariç)
@@ -355,6 +365,7 @@ const createproducts = asyncHandler(async (req, res) => {
         const productDefind = `${infoProduct?.title || ""} ${infoProduct?.description || ""}`;
         const createProduct = await findProductAgent.create(companyid, productDefind);
 
+        console.log("Ürün oluşturma cevabı:", createProduct);
         if (createProduct?.success === false) {
           console.warn("⚠️ LLM başarısız ürün cevabı:", createProduct);
           continue;
@@ -416,7 +427,7 @@ const createproducts = asyncHandler(async (req, res) => {
           .slice(0, 1000);
 
         const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
-        let slug = await generateSlug(title)
+        let slug = await generateSlug(createProduct.title)
         // === [3] Ürünü kaydet ===
         const nProduct = await new Product({
           ...createProduct,
@@ -452,11 +463,13 @@ const createproducts = asyncHandler(async (req, res) => {
               .slice(0, 1000);
 
             const vectorResponse = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/vector", { text: vectorText });
+
             const formFieldDoc = await new FormField({
               ...field,
               vector: vectorResponse.data.vector
 
             }).save();
+
             formFieldIds.push(formFieldDoc._id);
           }
 
@@ -537,36 +550,33 @@ const findProductTitle = asyncHandler(async (req, res) => {
             continue; // return yerine devam, diğer dosyalar da işlenebilsin
           }
           const fileBuffer = await getFileBufferFromS3(upload.data.Key);
-          const mimeType = upload?.file?.upload; // örnek
+          const mimeType = upload?.file?.mimetype; // örnek
           try {
             const content = await FileParser.parse(fileBuffer, mimeType);
             console.log("📄 İçerik:", content);
+            const titles = await extendTitleAgent.find(userInfo, content);
+            if (Array.isArray(titles)) {
+              allTitles.push(...titles);
+            }
           } catch (err) {
             console.error("⚠️ Dosya işleme hatası:", err.message);
           }
 
-          if (process.env.NODE_ENV !== "production") {
-            console.log(`📄 PDF içeriği (ilk 4000 karakter) | uploadid: ${item.uploadid}`);
-            console.log(pdfData.text);
-          }
-
-          const titles = await extendTitleAgent.find(userInfo, content);
-          if (Array.isArray(titles)) {
-            allTitles.push(...titles);
-          }
         } catch (fileErr) {
           console.error(`🚨 PDF işleme hatası | uploadid: ${item.uploadid}`, fileErr);
         }
       } else if (type === "website") {
         try {
           let scrwurl = item.url
-          const scraper = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/scraper", { url: scrwurl });
-          const titles = await extendTitleAgent.find(userInfo, scraper.data.markdown);
+          const scraper = await axios.post(process.env.EMBEDDING_URL + "/api/v10/llm/scrapper", { url: scrwurl });
+          // Örnek kullanım
+          const cleanedText = cleanBracketedLines(scraper.data.crawler.markdown_v2);
+          const titles = await extendTitleAgent.find(userInfo, cleanedText);
           if (Array.isArray(titles)) {
             allTitles.push(...titles);
           }
         } catch (error) {
-          console.error(`🚨 Web site Tarama işlemi hata: ${item.uploadid}`, error);
+          return res.status(error.response.data.status_code).json(ApiResponse.error(error.response.data.status_code, error.response.data.error, {}));
         }
       } else if (type === "prompt") {
         try {

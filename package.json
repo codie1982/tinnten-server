@@ -11,7 +11,8 @@
     "build": "npm run build",
     "client": "npm start --prefix frontend",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "sentry:sourcemaps": "sentry-cli sourcemaps inject --org grntsoftware --project node-express ./out && sentry-cli sourcemaps upload --org grntsoftware --project node-express ./out"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.1",
@@ -23,6 +24,7 @@
     "@langchain/core": "^0.3.16",
     "@langchain/langgraph": "^0.2.19",
     "@langchain/openai": "^0.3.11",
+    "@sentry/cli": "^2.45.0",
     "@sentry/node": "^9.22.0",
     "amqplib": "^0.10.5",
     "axios": "^1.7.5",
