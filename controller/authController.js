@@ -9,7 +9,7 @@ const { OAuth2Client } = require("google-auth-library");
 const ApiResponse = require("../helpers/response.js");
 const Keycloak = require("../lib/Keycloak.js");
 const { registerUser, loginUser } = require("../services/authServices.js");
-const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendVerificationEmail.js")
+const { sendVerificationEmail, checkMailVerifyCode, sendWelcomeMail } = require("../jobs/sendEmail.js")
 const { verifyRecaptcha } = require("../utils/verifyRecaptcha.js");
 
 

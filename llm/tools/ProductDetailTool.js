@@ -20,7 +20,6 @@ class ProductDetailTool extends BaseTool {
         type: "product_info",
         message: `${prod.title}: ${prod.description} (${prod.basePrice} TL)`,
         products: [{ id: prod._id, title: prod.title, description: prod.description, price: prod.basePrice, features: prod.attributes }],
-        services: [],
         action: "respond",
       };
     } catch (error) {

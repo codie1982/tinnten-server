@@ -78,7 +78,6 @@ class ProductSuggestTool extends BaseTool {
         system_message: `Öneri üretilirken hata oluştu: ${error.message}`,
         action: "none",
         products: [],
-        services: [],
       };
     }
   }
@@ -121,7 +120,6 @@ class ProductSuggestTool extends BaseTool {
       message: questions[0]?.questionText || "Ne hakkında bilgi almak istersiniz?",
       action: "question",
       products: [],
-      services: [],
       system_message: "",
     };
   }

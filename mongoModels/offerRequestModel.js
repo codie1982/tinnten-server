@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 // Teklif Talebi Şeması
 const offerRequestSchema = new mongoose.Schema({
   userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
-  productid: { type: mongoose.Schema.Types.ObjectId, ref: "product", default: null },
   description: { type: String, default: "" },
 
   priceRange: {
@@ -21,7 +20,7 @@ const offerRequestSchema = new mongoose.Schema({
   },
 
   isGeneral: { type: Boolean, default: true },
-  targetCompanyId: { type: mongoose.Schema.Types.ObjectId, ref: "company", default: null },
+  targetProductId: [{ type: mongoose.Schema.Types.ObjectId, ref: "product", default: null }],
   dynamicFormId: { type: mongoose.Schema.Types.ObjectId, ref: "dynamicForm" },
 
   // 🕰️ Teklif Süresi
@@ -35,11 +34,15 @@ const offerRequestSchema = new mongoose.Schema({
   },
 
   // 💬 Süreç Aşaması
-  state: {
-    type: String,
-    enum: ["makeform", "search", "answerform", "generalinfo", "completed"],
-    default: "makeform"
-  },
+  stateHistory: [
+    {
+      step: {
+        type: String,
+        enum: ["makeform", "search", "answerform", "generalinfo", "completed"]
+      },
+      updatedAt: { type: Date, default: Date.now }
+    }
+  ],
 
   // 🧾 Genel Durum
   status: {

@@ -1,5 +1,6 @@
 
 const asyncHandler = require("express-async-handler");
+const axios = require("axios");
 const ApiResponse = require("../helpers/response.js")
 const Keycloak = require("../lib/Keycloak.js");
 const OfferRequest = require("../mongoModels/offerRequestModel.js")
@@ -8,22 +9,149 @@ const DynamicForm = require("../mongoModels/dynamicFormModel.js")
 const formfield = require("../mongoModels/formFieldModel.js")
 const FormResponse = require("../mongoModels/formResponseModel.js")
 const ProductsDB = require("../db/ProductsDB.js");
+const FormFieldsDB = require("../db/FormFieldsDB.js");
 const Products = require("../mongoModels/productsModel.js");
 
 const User = require("../mongoModels/userModel.js")
 
+const FindFormFieldQuestionAgent = require("../llm/agents/findFormFieldQuestionAgent.js")
+const { sendOfferRequestEmail, sendOfferCompleteEmail } = require("../jobs/sendEmail.js");
+const { ProductSearchTool } = require("../llm/tools/ProductSearchTool.js");
+
 const AccountManager = require("../helpers/AccountManager.js");
 const { trace } = require("joi");
+const companyProfilModel = require("../mongoModels/companyProfilModel.js");
+const { handleInsert, handleUpdateOne } = require("../services/dbQueryService.js")
 
+async function updateOfferRequestState(offerRequestId, newState) {
+  handleUpdateOne("offerrequest", { _id: offerRequestId }, {
+    state: newState,
+    $push: {
+      stateHistory: {
+        step: newState,
+        updatedAt: new Date()
+      }
+    }
+  });
+}
 
 const makeform = asyncHandler(async (req, res) => {
-  const { description, productid } = req.body;
-
+  const { offerRequestId } = req.body;
 
   try {
     const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
 
-    // 🛡️ Yetkilendirme
+    // [1] Keycloak Kullanıcı Doğrulama
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
+    // [2] Input Validation – offerRequestId doğrulama
+    if (!offerRequestId || typeof offerRequestId !== "string") {
+      return res.status(400).json(ApiResponse.error(400, "Geçersiz parametre", {
+        message: "Teklif ID değeri eksik veya hatalı"
+      }));
+    }
+
+    // [3] OfferRequest çekme
+    const offerRequest = await OfferRequest.findById(offerRequestId);
+    if (!offerRequest) {
+      return res.status(404).json(ApiResponse.error(404, "Teklif isteği bulunamadı"));
+    }
+
+    // [4] Sahiplik kontrolü
+    if (!offerRequest.userid.equals(user._id)) {
+      return res.status(403).json(ApiResponse.error(403, "Bu teklif isteğine erişiminiz yok"));
+    }
+
+    // [5] İkinci kez form oluşturulması engellenmeli
+    if (offerRequest.dynamicFormId) {
+      return res.status(400).json(ApiResponse.error(400, "Bu teklif için form zaten oluşturulmuş", {
+        formid: offerRequest.dynamicFormId
+      }));
+    }
+
+    const fieldDB = new FormFieldsDB();
+    const targetProductIds = offerRequest.targetProductId || [];
+
+    if (!Array.isArray(targetProductIds) || targetProductIds.length === 0) {
+      return res.status(400).json(ApiResponse.error(400, "Teklif için geçerli ürün bulunamadı"));
+    }
+
+    // [6] FormField vektör eşleştirme
+    const questionAgent = new FindFormFieldQuestionAgent();
+    await questionAgent.start();
+    const questions = await questionAgent.create(offerRequest.description);
+
+    const matchedFieldIds = [];
+
+    for (const q of questions) {
+      const text = q.question.slice(0, 1000);
+      const vectorRes = await axios.post(`${process.env.EMBEDDING_URL}/api/v10/llm/vector`, { text });
+
+      if (!vectorRes?.data?.vector || !Array.isArray(vectorRes.data.vector)) {
+        continue; // geçersiz vektör
+      }
+
+      const vector = vectorRes.data.vector;
+
+      const bestMatchList = await fieldDB.searchVector(vector, 3, {
+        productid: { $in: targetProductIds.map(id => new mongoose.Types.ObjectId(id)) }
+      });
+
+      for (const match of bestMatchList) {
+        const fieldIdStr = match._id.toString();
+        if (!matchedFieldIds.includes(fieldIdStr)) {
+          matchedFieldIds.push(fieldIdStr);
+        }
+      }
+    }
+
+    if (matchedFieldIds.length === 0) {
+      return res.status(404).json(ApiResponse.error(404, "Uygun form alanı bulunamadı"));
+    }
+
+    const dynamicForm = await DynamicForm.create({
+      companyid: null,
+      formName: "Otomatik Form",
+      description: "AI tarafından oluşturulmuştur",
+      whom: user._id,
+      fields: matchedFieldIds
+    });
+
+    offerRequest.dynamicFormId = dynamicForm._id;
+    await offerRequest.save();
+
+    const populatedForm = await DynamicForm.findById(dynamicForm._id)
+      .populate({ path: "fields", model: "formfield", select: "-vector" });
+
+    await updateOfferRequestState(offerRequestId, "makeform");
+
+    return res.status(200).json(ApiResponse.success(200, "Form başarıyla oluşturuldu", {
+      offerRequestId: offerRequest._id,
+      formid: dynamicForm._id,
+      fields: populatedForm.fields
+    }));
+
+  } catch (error) {
+    console.error("Teklif Formu Hatası:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+      error: error.message
+    }));
+  }
+});
+const makeFormFromProducts = asyncHandler(async (req, res) => {
+  const { description, productIds } = req.body;
+
+  try {
+    const access_token = req.kauth?.grant?.access_token?.token;
     if (!access_token) {
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
         message: "Token bulunamadı veya geçersiz."
@@ -36,68 +164,144 @@ const makeform = asyncHandler(async (req, res) => {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
 
-    const userid = user._id;
+    // === [1] Girdi Kontrolleri
+    if (!description || typeof description !== "string") {
+      return res.status(400).json(ApiResponse.error(400, "Eksik açıklama"));
+    }
 
-    // === [1] Ürün ID'si varsa ve sabit ürünle ilerleniyorsa
-    if (productid) {
-      const productDB = new ProductsDB();
-      const product = await productDB.light({ _id: productid });
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json(ApiResponse.error(400, "Geçerli bir ürün listesi girilmelidir"));
+    }
 
-      if (!product) {
-        return res.status(404).json(ApiResponse.error(404, "Ürün bulunamadı"));
-      }
+    const objectProductIds = productIds.map(id => new mongoose.Types.ObjectId(id));
 
-      if (product.pricetype !== "offer_based") {
-        return res.status(400).json(ApiResponse.error(400, "Bu ürün teklif bazlı değil", {
-          pricetype: product.pricetype
-        }));
-      }
+    const fieldDB = new FormFieldsDB();
+    const questionAgent = new FindFormFieldQuestionAgent();
+    await questionAgent.start();
+    const questions = await questionAgent.create(description);
 
-      if (!product.requestForm) {
-        return res.status(400).json(ApiResponse.error(400, "Bu ürün için form tanımlanmamış"));
-      }
+    const matchedFieldIds = [];
 
-      const form = await DynamicForm.findOne({ _id: product.requestForm })
-        .populate({ path: "fields", model: "formfield", select: "-vector" });
+    for (const q of questions) {
+      const text = q.question.slice(0, 1000);
+      const vectorRes = await axios.post(`${process.env.EMBEDDING_URL}/api/v10/llm/vector`, { text });
 
-      if (!form) {
-        return res.status(404).json(ApiResponse.error(404, "Form bulunamadı"));
-      }
+      if (!vectorRes?.data?.vector || !Array.isArray(vectorRes.data.vector)) continue;
 
-      //Güncelleme
-      await new OfferRequest({
-        userid: userid,
-        productid: productid,
-        description: description,
-        state: "makeform",
-        isGeneral: false, // Genel teklif mi?
-        dynamicFormId: form._id,
-        targetCompanyId: product.companyid, // Ürün sahibi firma
-        offerDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Teklif verme süresi 7 gün
-        notificationStatus: "pending"
-      }).save();
+      const vector = vectorRes.data.vector;
 
-      return res.status(200).json(ApiResponse.success(200, "Form başarıyla bulundu", {
-        formid: form._id,
-        fields: form.fields
-      }));
+      const bestMatchList = await fieldDB.searchVector(vector, 3, {
+        productid: { $in: objectProductIds }
+      });
 
-    } else {
-      // === [2] Ürün ID'si yoksa: semantic eşleşme ile ürün bulma
-
-
-      if (!description) {
-        return res.status(400).json(ApiResponse.error(400, "Eksik parametre", {
-          message: "Lütfen açıklama giriniz."
-        }));
+      for (const match of bestMatchList) {
+        const fieldIdStr = match._id.toString();
+        if (!matchedFieldIds.includes(fieldIdStr)) {
+          matchedFieldIds.push(fieldIdStr);
+        }
       }
     }
 
+    if (matchedFieldIds.length === 0) {
+      return res.status(404).json(ApiResponse.error(404, "Uygun form alanı bulunamadı"));
+    }
 
-    // Devamı ikinci aşamada yazılacak...
+    // === [2] Yeni Form Oluştur
+    const dynamicForm = await DynamicForm.create({
+      companyid: null,
+      formName: "Otomatik Genel Form",
+      description: "AI tarafından oluşturulmuştur",
+      whom: user._id,
+      fields: matchedFieldIds
+    });
+
+    // === [3] Yeni Teklif Kaydı Oluştur
+    const offerRequest = await new OfferRequest({
+      userid: user._id,
+      productid: null,
+      description: description,
+      isGeneral: true,
+      dynamicFormId: dynamicForm._id,
+      targetProductId: objectProductIds,
+      offerDeadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      notificationStatus: "pending"
+    }).save();
+
+    const populatedForm = await DynamicForm.findById(dynamicForm._id)
+      .populate({ path: "fields", model: "formfield", select: "-vector" });
+
+    await updateOfferRequestState(offerRequest._id, "makeform");
+
+    return res.status(200).json(ApiResponse.success(200, "Form başarıyla oluşturuldu", {
+      offerRequestId: offerRequest._id,
+      formid: dynamicForm._id,
+      fields: populatedForm.fields
+    }));
 
   } catch (error) {
-    console.error('Teklif Formu Hatası:', error);
+    console.error("Genel Teklif Formu Hatası:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+      error: error.message
+    }));
+  }
+});
+const getForm = asyncHandler(async (req, res) => {
+  const { productid } = req.body;
+
+  if (!productid) {
+    return res.status(400).json(ApiResponse.error(400, "Eksik parametre", {
+      message: "productid gereklidir."
+    }));
+  }
+
+  try {
+    // === [1] Yetkilendirme ===
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+
+    const userkey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userkey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
+    // === [2] Ürün kontrolü ===
+    const productDB = new ProductsDB();
+    const product = await productDB.light({ _id: productid });
+
+    if (!product) {
+      return res.status(404).json(ApiResponse.error(404, "Ürün bulunamadı"));
+    }
+
+    if (product.pricetype !== "offer_based") {
+      return res.status(400).json(ApiResponse.error(400, "Bu ürün teklif bazlı değil", {
+        pricetype: product.pricetype
+      }));
+    }
+
+    if (!product.requestForm) {
+      return res.status(400).json(ApiResponse.error(400, "Bu ürün için form tanımlanmamış"));
+    }
+
+    // === [3] Formu getir ===
+    const form = await DynamicForm.findOne({ _id: product.requestForm })
+      .populate({ path: "fields", model: "formfield", select: "-vector" });
+
+    if (!form) {
+      return res.status(404).json(ApiResponse.error(404, "Form bulunamadı"));
+    }
+
+    return res.status(200).json(ApiResponse.success(200, "Form başarıyla getirildi", {
+      formid: form._id,
+      fields: form.fields
+    }));
+
+  } catch (error) {
+    console.error("Form getirme hatası:", error);
     return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
       error: error.message
     }));
@@ -141,7 +345,7 @@ const saveFormResponse = asyncHandler(async (req, res) => {
       return res.status(403).json(ApiResponse.error(403, "Bu teklif için artık form doldurulamaz."));
     }
 
-    if (["answerform", "generalinfo","completed"].includes(offerRequest.state)) {
+    if (["answerform", "generalinfo", "completed"].includes(offerRequest.state)) {
       return res.status(403).json(ApiResponse.error(403, "Bu form soru cevaplama aşamasını geçmiş."));
     }
     // === [3] Form ve alanlar çek ===
@@ -197,9 +401,11 @@ const saveFormResponse = asyncHandler(async (req, res) => {
 
     await FormResponse.insertMany(responses);
 
-    await OfferRequest.findByIdAndUpdate(offerRequestId, { state: "answerform" });
+    await updateOfferRequestState(offerRequestId, "answerform")
 
     return res.status(200).json(ApiResponse.success(200, "Form cevapları kaydedildi", {
+      offerRequestId,
+      formId,
       saved: responses.length
     }));
 
@@ -210,66 +416,135 @@ const saveFormResponse = asyncHandler(async (req, res) => {
 });
 const search = asyncHandler(async (req, res) => {
   const { description } = req.body;
-  try {
-    const access_token = req.kauth?.grant?.access_token?.token;
 
-    // 🛡️ Yetkilendirme
+  if (!description) {
+    return res.status(400).json(ApiResponse.error(400, "Eksik parametre", {
+      message: "description gereklidir."
+    }));
+  }
+
+  try {
+    // === [1] Token kontrolü ===
+    const access_token = req.kauth?.grant?.access_token?.token;
     if (!access_token) {
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
         message: "Token bulunamadı veya geçersiz."
       }));
     }
 
-    const userkey = await Keycloak.getUserInfo(access_token);
-    const user = await User.findOne({ keyid: userkey.sub });
+    const userKey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userKey.sub });
     if (!user) {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
 
-    const userid = user._id;
+    // === [2] Tool'u başlat ===
+    const tool = new ProductSearchTool();
+    await tool.initialize();
 
-    // === [3] Formu detaylı çek
-    const form = await DynamicForm.findOne({
-      _id: "6832df9602b4db3fc5cf25b1",
-    }).populate({ path: "fields", model: "formfield", select: "-vector" });
+    const toolResult = await tool.execute({
+      query: description,
+      context: null, // LLM'den gelen context verileri
+      intent: null // Intent bilgisi yoksa null geç
+    });
 
-    return res.status(200).json(ApiResponse.success(200, 'Arama Tamamlandı.', { fields: form.fields }));
+    if (toolResult.error) {
+      return res.status(500).json(ApiResponse.error(500, toolResult.system_message));
+    }
+    // === [3] Eşleşen ürünlerden firma ID'lerini topla
+    const matchedProductIds = toolResult.products.map(p => p._id);
+    const uniqueCompanyIds = [...new Set(toolResult.products.map(p => p.companyid).filter(Boolean))];
+
+    // === [4] Yeni offerRequest oluştur
+    const offerRequest = await OfferRequest.create({
+      userid: user._id,
+      description,
+      isGeneral: true,
+      targetProductId: matchedProductIds,
+      stateHistory: [{ step: "search", updatedAt: new Date() }],
+      offerDeadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3) // +3 gün default
+    });
+
+    return res.status(200).json(ApiResponse.success(200, "Arama ve teklif kaydı tamamlandı", {
+      offerRequestId: offerRequest._id,
+      totalMatchedProducts: matchedProductIds.length,
+      totalCompanies: uniqueCompanyIds.length,
+      matchedProducts: toolResult.products
+    }));
 
   } catch (error) {
-    console.error('Genel Hata:', error);
-    return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: error.message }));
+    console.error("Arama hatası:", error);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { error: error.message }));
   }
 });
-const generalinfo = asyncHandler(async (req, res) => {
-  const { description } = req.body;
-  try {
-    const access_token = req.kauth?.grant?.access_token?.token;
+const updateSettings = asyncHandler(async (req, res) => {
+  const {
+    offerRequestId,
+    contactPreference,
+    contactInfo,
+    maxOfferCount,
+    validUntil,
+    additionalNote
+  } = req.body;
 
-    // 🛡️ Yetkilendirme
+  if (!offerRequestId || !contactPreference || !validUntil) {
+    return res.status(400).json(ApiResponse.error(400, "Eksik parametre", {
+      required: ["offerRequestId", "contactPreference", "validUntil"]
+    }));
+  }
+
+  try {
+    // 🛡️ Token kontrolü
+    const access_token = req.kauth?.grant?.access_token?.token;
     if (!access_token) {
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
         message: "Token bulunamadı veya geçersiz."
       }));
     }
 
-    const userkey = await Keycloak.getUserInfo(access_token);
-    const user = await User.findOne({ keyid: userkey.sub });
+    const userKey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userKey.sub });
     if (!user) {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
 
-    const userid = user._id;
+    // 🔍 İlgili teklif talebini getir
+    const offerRequest = await OfferRequest.findById(offerRequestId);
+    if (!offerRequest) {
+      return res.status(404).json(ApiResponse.error(404, "Teklif talebi bulunamadı"));
+    }
 
-    // === [3] Formu detaylı çek
-    const form = await DynamicForm.findOne({
-      _id: "6832df9602b4db3fc5cf25b1",
-    }).populate({ path: "fields", model: "formfield", select: "-vector" });
+    // 👁️ Sahiplik kontrolü
+    if (!offerRequest.userid.equals(user._id)) {
+      return res.status(403).json(ApiResponse.error(403, "Bu işlem size ait değil."));
+    }
 
-    return res.status(200).json(ApiResponse.success(200, 'Arama Tamamlandı.', { fields: form.fields }));
+    // 🚧 Aşama kontrolü (isteğe bağlı)
+    if (offerRequest.state !== "generalinfo") {
+      return res.status(400).json(ApiResponse.error(400, "Bu adım şu an güncellenemez."));
+    }
 
-  } catch (error) {
-    console.error('Genel Hata:', error);
-    return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: error.message }));
+    // 📦 Güncelleme nesnesi
+    const update = {
+      contactPreference,
+      contactInfo: {
+        phone: contactInfo?.phone || "",
+        email: contactInfo?.email || ""
+      },
+      maxOfferCount: maxOfferCount || 10,
+      validUntil: new Date(validUntil),
+      additionalNote: additionalNote || "",
+    };
+
+    await OfferRequest.findByIdAndUpdate(offerRequestId, update);
+
+
+    await updateOfferRequestState(offerRequestId, "generalinfo")
+
+    return res.status(200).json(ApiResponse.success(200, "Teklif isteği başarıyla güncellendi", update));
+  } catch (err) {
+    console.error("Teklif ayar güncelleme hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { error: err.message }));
   }
 });
 const expand = asyncHandler(async (req, res) => {
@@ -299,8 +574,141 @@ const expand = asyncHandler(async (req, res) => {
     return res.status(500).json(ApiResponse.error(500, 'Sunucu hatası.', { error: error.message }));
   }
 });
+const completeOfferRequest = asyncHandler(async (req, res) => {
+  const { offerRequestId } = req.body;
 
+  if (!offerRequestId) {
+    return res.status(400).json(ApiResponse.error(400, "Eksik parametre", {
+      message: "offerRequestId gereklidir"
+    }));
+  }
+
+  try {
+    // === [1] Token ve kullanıcı doğrulama ===
+    const access_token = req.kauth?.grant?.access_token?.token;
+    if (!access_token) {
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
+    }
+
+    const userKey = await Keycloak.getUserInfo(access_token);
+    const user = await User.findOne({ keyid: userKey.sub });
+    if (!user) {
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
+    }
+
+    // === [2] Teklif isteği kontrolü ===
+    const offerRequest = await OfferRequest.findById(offerRequestId);
+    if (!offerRequest) {
+      return res.status(404).json(ApiResponse.error(404, "Teklif isteği bulunamadı"));
+    }
+
+    if (!offerRequest.userid.equals(user._id)) {
+      return res.status(403).json(ApiResponse.error(403, "Bu işlem size ait değil."));
+    }
+
+    if (offerRequest.state === "completed") {
+      return res.status(200).json(ApiResponse.success(200, "Teklif zaten tamamlandı."));
+    }
+
+    if (new Date() > offerRequest.offerDeadline) {
+      return res.status(400).json(ApiResponse.error(400, "Teklif alma süresi dolmuş."));
+    }
+
+    const offerDescription = offerRequest.description || "Teklif isteği açıklaması yok.";
+    let productTitle = "Ürün Bilgisi Yok";
+
+    if (offerRequest.productid) {
+      const product = await Products.findById(offerRequest.productid);
+      if (product) {
+        productTitle = product.title || productTitle;
+      }
+    }
+
+    // === [3] Teklifin ilgili firmalara gönderilmesi ===
+    if (!offerRequest.isGeneral) {
+      // 🎯 Belirli bir hedef firma
+      const targetCompany = await companyProfilModel.findById(offerRequest.targetCompanyId);
+      if (!targetCompany) {
+        return res.status(404).json(ApiResponse.error(404, "Hedef firma bulunamadı"));
+      }
+
+      const targetUser = await User.findOne({ _id: targetCompany.userid });
+      if (!targetUser) {
+        return res.status(404).json(ApiResponse.error(404, "Firma sahibi kullanıcı bulunamadı"));
+      }
+
+      const keyUser = await Keycloak.getUserInfoById(targetUser.keyid);
+      try {
+        await sendOfferRequestEmail(keyUser.email, keyUser.firstName, offerDescription, productTitle);
+      } catch (e) {
+        console.warn(`Hedef firma (${targetCompany.name}) için e-posta gönderimi başarısız:`, e.message);
+      }
+
+    } else if (Array.isArray(offerRequest.targetCompanyIds) && offerRequest.targetCompanyIds.length > 0) {
+      // 🌐 Çoklu firma hedefli
+      for (const companyId of offerRequest.targetCompanyIds) {
+        try {
+          const company = await companyProfilModel.findById(companyId);
+          if (!company) continue;
+
+          const companyUser = await User.findOne({ _id: company.userid });
+          if (!companyUser) continue;
+
+          const keyUser = await Keycloak.getUserInfoById(companyUser.keyid);
+
+          await sendOfferRequestEmail(keyUser.email, keyUser.firstName, offerDescription, productTitle);
+        } catch (e) {
+          console.warn(`Firma ID ${companyId} için e-posta gönderilemedi:`, e.message);
+        }
+      }
+
+    } else if (offerRequest.productid) {
+      // 🛒 Ürün bağlı firma üzerinden tek firma hedefle
+      const product = await Products.findById(offerRequest.productid);
+      const companyId = product?.companyid;
+      if (companyId) {
+        const company = await companyProfilModel.findById(companyId);
+        const companyUser = await User.findOne({ _id: company.userid });
+        const keyUser = await Keycloak.getUserInfoById(companyUser.keyid);
+
+        try {
+          await sendOfferRequestEmail(keyUser.email, keyUser.firstName, offerDescription, product.title);
+        } catch (e) {
+          console.warn("Ürün firması e-posta gönderimi başarısız:", e.message);
+        }
+      } else {
+        return res.status(400).json(ApiResponse.error(400, "Ürün firması bulunamadı"));
+      }
+
+    } else {
+      // 🚨 Firma belirlenemedi
+      return res.status(400).json(ApiResponse.error(400, "Genel teklif için hedef firmalar belirlenemedi"));
+    }
+
+    // === [4] Kullanıcıya bilgilendirme e-postası ===
+    try {
+      await sendOfferCompleteEmail(
+        user.email,
+        user.name,
+        "Teklif isteğiniz tamamlandı. Lütfen gelen teklifleri kontrol edin."
+      );
+    } catch (e) {
+      console.warn("Kullanıcı bilgilendirme e-postası gönderilemedi:", e.message);
+    }
+
+    // === [5] Durumu güncelle ve geçmişe logla ===
+    await updateOfferRequestState(offerRequestId, "completed");
+
+    return res.status(200).json(ApiResponse.success(200, "Teklif isteği başarıyla tamamlandı."));
+
+  } catch (err) {
+    console.error("Tamamlama hatası:", err);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { error: err.message }));
+  }
+});
 
 module.exports = {
-  search, expand, makeform, generalinfo, saveFormResponse
+  search, expand, makeform,makeFormFromProducts, getForm, updateSettings, saveFormResponse, completeOfferRequest
 };

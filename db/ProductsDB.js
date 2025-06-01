@@ -91,61 +91,80 @@ class ProductsDB extends BaseDB {
     async recover(query) {
         throw new Error("MongoDB: Silinen ürünleri geri getirme desteklenmiyor!");
     }
-    async search(query) {
+    async search(query, matchFilter = {}) {
         try {
-            const agg = [
-                {
-                    $search:
-                    {
-                        text: {
-                            query: query,
-                            path: ["title", "description", "categories"],
-                        },
-                    }
-                },
-                {
-                    $limit: 3,
-                },
-                {
-                    $project: {
-                        _id: 0,
-                        title: 1,
-                    },
-                },
-            ];
-            const result = Product.aggregate(agg);
-            return result;
-        } catch (error) {
-            throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
-        }
-    }
-    async searchVector(vector, limit) {
-        //vector boyutu 768 model: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
-        try {
-            const agg = [
-                {
-                    $vectorSearch: {
-                        index: 'tinnten_product_vector_index',
-                        path: 'vector',
-                        queryVector: vector,
-                        numCandidates: limit * 2, // Daha fazla aday alıyoruz
-                        limit: limit,
-                        metric: 'cosine'
-                    }
-                },
-                {
-                    $project: {
-                        _id: 1,
-                        title: 1,
-                        score: { $meta: "vectorSearchScore" } // ✨ Skoru buradan alıyorsun
+            const agg = [];
+
+            // [0] Eğer match filtresi varsa ekle
+            if (Object.keys(matchFilter).length > 0) {
+                agg.push({ $match: matchFilter });
+            }
+
+            // [1] Full-text arama
+            agg.push({
+                $search: {
+                    index: 'default', // Eğer özel bir search index kullandıysan burayı belirt
+                    text: {
+                        query: query,
+                        path: ["title", "description", "categories"]
                     }
                 }
-            ];
+            });
+
+            // [2] Sonuç sayısını sınırlama
+            agg.push({ $limit: 3 });
+
+            // [3] Hangi alanları döneceğini belirle
+            agg.push({
+                $project: {
+                    _id: 1,
+                    title: 1,
+                    score: { $meta: "searchScore" } // Bonus: skor bilgisi
+                }
+            });
 
             const result = await Product.aggregate(agg);
             return result;
         } catch (error) {
-            throw new Error("MongoDB: Ürün güncellenirken hata oluştu - " + error.message);
+            throw new Error("MongoDB: Ürün arama işlemi sırasında hata oluştu - " + error.message);
+        }
+    }
+    async searchVector(vector, limit, matchFilter = {}) {
+        try {
+            const pipeline = [];
+
+            // [1] Vektörel arama
+            pipeline.push({
+                $vectorSearch: {
+                    index: 'tinnten_product_vector_index',
+                    path: 'vector',
+                    queryVector: vector,
+                    numCandidates: limit * 2,
+                    limit: limit,
+                    metric: 'cosine'
+                }
+            });
+            // [0] Eğer match filtresi varsa ekle
+            if (Object.keys(matchFilter).length > 0) {
+                pipeline.push({ $match: matchFilter });
+            }
+            // [2] Projeksiyon
+            pipeline.push({
+                $project: {
+                    _id: 1,
+                    title: 1,
+                    companyid: 1,
+                    categories: 1,
+                    type: 1,
+                    pricetype: 1,
+                    score: { $meta: "vectorSearchScore" }
+                }
+            });
+
+            const result = await Product.aggregate(pipeline);
+            return result;
+        } catch (error) {
+            throw new Error("MongoDB: Ürün aramasında hata oluştu - " + error.message);
         }
     }
 

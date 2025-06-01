@@ -8,6 +8,8 @@
     "server": "nodemon server.js && npm run emailworker && npm run conversationworker",
     "emailworker": "node workers/emailWorker.js",
     "conversationworker": "node workers/conversationWorker.js",
+    "agentworker": "node workers/agentworker.js",
+    "dbworker": "node workers/dbworker.js",
     "build": "npm run build",
     "client": "npm start --prefix frontend",
     "dev": "concurrently \"npm run server\" \"npm run client\"",

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hoş Geldin - Tinnten</title>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; text-align: center; background-color: #f9f9f9; padding: 20px; }
+        .container { max-width: 600px; margin: auto; padding: 20px; background: #fff; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1); }
+        .header { font-size: 24px; font-weight: bold; color: #007bff; margin-bottom: 10px; }
+        .content { font-size: 16px; margin-bottom: 20px; line-height: 1.5; }
+        .button { display: inline-block; padding: 10px 20px; background-color: #007bff; color: #fff; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 20px; }
+        .footer { font-size: 12px; color: #777; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">🎉 Tinnten'e Hoş Geldin!</div>
+        <p class="content">Merhaba <strong>{{username}}</strong>,</p>
+        <p class="content">
+            Tinnten üzerinde bir kullanıcımız sizin oluşturduğunuz ürünlere/hizmetlere uygun olduğunu düşündüğimüz bir talepte bulundu. 
+            Talep açıklaması ;
+        </p>
+        <p>{{offer_description}}</p>
+         <p></p>
+
+        <p class="content">
+            Eğer bu talep ilgini çekerse tinnten üzerinden bir teklif verebilirsin.
+        </p>
+        <p class="footer">Bu e-posta otomatik olarak gönderilmiştir. Yanıtlamayınız.</p>
+    </div>
+</body>
+</html>
