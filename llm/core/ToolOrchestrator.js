@@ -47,39 +47,39 @@ class ToolOrchestrator {
     }
 
     /* ----------------------------------------------------------------- */
-    async executeIntents(intents = [], ctx = {}) {
+    async executeIntents(intent = {}, ctx = {}) {
         console.log("[Orchestrator] === EXECUTION START ===");
         this.context_id = ctx.context_id || uuidv4();
-
-        const sorted = (intents || [])
-            .filter((i) => i && i.confidence >= 0.15)
-            .sort((a, b) => (a.priority - b.priority) || (b.confidence - a.confidence));
-
-        if (!sorted.length) {
-            console.log("[Orchestrator] No valid intents – fallback to chat.");
+    
+        // ✅ Geçerli intent mi?
+        if (!intent || intent.confidence < 0.15) {
+            console.log("[Orchestrator] No valid intent – fallback to chat.");
             return this._emptyResponse("Üzgünüm, tam anlayamadım.");
         }
-
+    
+        console.log(`→ Intent: ${intent.intent} | tool: ${intent.tool}`);
+    
         const results = [];
-        for (const intent of sorted) {
-            console.log(`→ Intent: ${intent.intent} | tool: ${intent.tool}`);
-
-            let res = await this._runIntentFlow(intent, ctx);
-            if (res) results.push(res);
-
-            if (intent.conditions?.length && res) {
-                const condOut = await this._runConditions(intent, res, ctx);
-                results.push(...condOut.filter(Boolean));
-            }
-
-            if (intent.nextTool && this._conditionSatisfied(intent.nextTool.condition, res)) {
-                const nextRes = await this._execTool(intent.nextTool.tool, intent.nextTool.query, intent, ctx);
-                if (nextRes) results.push(nextRes);
-            }
+    
+        // Ana intent flow
+        let res = await this._runIntentFlow(intent, ctx);
+        if (res) results.push(res);
+    
+        // Koşullu çalışacak araçlar
+        if (intent.conditions?.length && res) {
+            const condOut = await this._runConditions(intent, res, ctx);
+            results.push(...condOut.filter(Boolean));
         }
-
+    
+        // Koşula bağlı bir sonraki araç
+        if (intent.nextTool && this._conditionSatisfied(intent.nextTool.condition, res)) {
+            const nextRes = await this._execTool(intent.nextTool.tool, intent.nextTool.query, intent, ctx);
+            if (nextRes) results.push(nextRes);
+        }
+    
         const primary = results[0] || null;
-        const response = this._composeResponse(results, primary); // Doğru metod: _composeResponse
+        const response = this._composeResponse(results, primary);
+    
         console.log("[Orchestrator] === EXECUTION END ===");
         return response;
     }

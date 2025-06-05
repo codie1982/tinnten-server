@@ -69,7 +69,7 @@ class GeneralChatResponseAgent extends ResponseAgent {
 
             // ToolOrchestrator sonuçlarını sistem prompt'una entegre et
             const systemPrompt = this.buildSystemPrompt(user, summary, orchestratorResults);
-
+            console.log("[GeneralChatResponseAgent] System Prompt:", systemPrompt);
             // MCP mesajını oluştur
             const mcpMessage = this.createMCPMessage(
                 conversationid,

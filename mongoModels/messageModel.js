@@ -7,7 +7,7 @@ const messageSchema = new mongoose.Schema({
   parentid: { type: mongoose.Schema.Types.ObjectId, ref: "message", required: false, default: null }, // parent Message ID'si
   human_message: { type: String, required: false, default: "" }, // Kullanıcı mesajı
   system_message: { type: String, required: false, default: "" }, // LLM mesajı
-  intents: [{ type: mongoose.Schema.Types.Mixed, default: null }], // LLM niyet analizi
+  intent: { type: mongoose.Schema.Types.Mixed, default: null }, // LLM niyet analizi
   orchestratorresponse: { type: mongoose.Schema.Types.Mixed, default: null }, // LLM niyet analizi
   meta: {
     type: mongoose.Schema.Types.Mixed,

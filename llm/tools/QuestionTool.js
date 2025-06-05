@@ -126,4 +126,4 @@ class QuestionTool extends BaseTool {
     }
 }
 
-module.exports = QuestionTool;
+module.exports = {QuestionTool};

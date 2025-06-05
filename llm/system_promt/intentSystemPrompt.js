@@ -1,5 +1,5 @@
 
-const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
+const intentSystemPrompt = (user, memory = [], scoped = {}) => {
     return new Promise((resolve, reject) => {
         const recent = memory.slice(-6)
             .map(m => `${m.role}: ${m.content}`)
@@ -23,12 +23,12 @@ const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
                         | production_info     | ProductDetailTool  | seçili ürün/hizmet bilgisi |
                         | search_product      | ProductSearchTool  | metin/vektör ile ürün/hizmet arama |
                         | chat                | null               | genel sohbet |
-                        | chatabouthproduct  | ProductUsageTool   | ürün/hizmet ile ne yapılır sohbeti |
-                        | supplier_search    | SupplierSearchTool | tedarikçi/alıcı arama |
-                        | offer_request      | OfferRequestTool   | ürün/hizmet için teklif oluşturma |
-                        | offer_form         | OfferFormTool      | teklif formu doldurma |
-                        | offer_feedback     | OfferFeedbackTool  | teklif geri dönüşleri |
-                        | offer_confirm      | OfferConfirmTool   | teklif onayı |
+                        | chatabouthproduct   | ProductUsageTool   | ürün/hizmet ile ne yapılır sohbeti |
+                        | supplier_search     | SupplierSearchTool | tedarikçi/alıcı arama |
+                        | offer_search        | OfferSearchTool    | ürün/hizmet bir arama |
+                        | offer_form          | OfferFormTool      | teklif formu doldurma |
+                        | offer_feedback      | OfferFeedbackTool  | teklif geri dönüşleri |
+                        | offer_confirm       | OfferConfirmTool   | teklif onayı |
 
                         **Kurallar:**
                         - **confidence < 0.15 ise intent oluşturma.**
@@ -45,65 +45,63 @@ const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
                         - **ui_changes: Yalnızca 'productDetail', 'RecommendationArea' ve 'offerFormModal' panelleri için değişiklikleri tanımla. 'chat' bloğu her zaman aktif olduğundan, bu panel için UI değişikliği belirtme.**
 
                         ### D. Bağlam
-                        **Seçili ürün ID: ${scoped.selectedProduct || "yok"}**  
-                        **Bağlam: ${scoped.context || { id: "yok", type: "yok", state: "initial", lockContext: false, metadata: {} }}**  
+                        **Seçili ürün/hizmet ID: ${scoped.selectedProduct || "no_product"}**  
+                        **Bağlam: ${scoped.context || { id: "no_id", type: "no_context", state: "initial", lockContext: false, metadata: {} }}**  
                         **Son 3 mesaj: ${recent}**  
                         **Kullanıcı: ${user?.name || "Anonim"}**  
-                        **Kullanıcı mesajı: "${human_message}"**
 
                         **YANITIN TAMAMINI, EK AÇIKLAMA OLMADAN, YALNIZCA ŞU JSON OLARAK DÖN:**  
                         **Kesinlikle: Başka hiçbir metin, yorum veya açıklama ekleme.**
 
                         ### C. JSON Çıktı Şeması
                         ***json
-                        [
-                            {
-                                "intent": "<tablodaki intent>",
-                                "tool": "<tablodaki tool adı veya null>",
-                                "confidence": <0-1>,
-                                "priority": <1-3>,
-                                "related_id": "<varsa ürün/hizmet ID>",
-                                "query": "<opsiyonel>",
-                                "fallback": {
-                                    "tool": "<opsiyonel>",
-                                    "query": "<opsiyonel>"
-                                },
-                                "conditions": [
-                                    {
-                                        "condition": "<koşul adı>",
-                                        "tool": "<tool adı>",
-                                        "query": "<sorgu>",
-                                        "params": <object>
-                                    }
-                                ],
-                                "nextTool": {
+                        {
+                            "intent": "<tablodaki intent>",
+                            "tool": "<tablodaki tool adı veya null>",
+                            "confidence": <0-1>,
+                            "priority": <1-3>,
+                            "related_id": "<varsa ürün/hizmet ID>",
+                            "query": "<opsiyonel>",
+                            "fallback": {
+                                "tool": "<opsiyonel>",
+                                "query": "<opsiyonel>"
+                            },
+                            "conditions": [
+                                {
+                                    "condition": "<koşul adı>",
                                     "tool": "<tool adı>",
                                     "query": "<sorgu>",
-                                    "condition": "<koşul adı>"
-                                },
-                                "retryTool": {
-                                    "tool": "<tool adı>",
-                                    "maxRetries": <sayı>,
-                                    "query": "<sorgu>"
-                                },
-                                "context": {
-                                    "id": "<ürün ID, teklif ID veya yok>",
-                                    "type": "<product, offer, supplier veya yok>",
-                                    "state": "<initial, search, form, feedback, confirmation>",
-                                    "lockContext": <true/false>,
-                                    "metadata": <object>
-                                },
-                                "ui_changes": {
-                                    "show": ["productDetail" | "RecommendationArea" | "offerFormModal"],
-                                    "hide": ["productDetail" | "RecommendationArea" | "offerFormModal"],
-                                    "update": {
-                                        "productDetail": "<değer>",
-                                        "RecommendationArea": "<değer>",
-                                        "offerFormModal": "<değer>"
-                                    }
+                                    "params": <object>
+                                }
+                            ],
+                            "nextTool": {
+                                "tool": "<tool adı>",
+                                "query": "<sorgu>",
+                                "condition": "<koşul adı>"
+                            },
+                            "retryTool": {
+                                "tool": "<tool adı>",
+                                "maxRetries": <sayı>,
+                                "query": "<sorgu>"
+                            },
+                            "context": {
+                                "id": "<ürün ID, teklif ID veya yok>",
+                                "type": "<product, offer, supplier veya yok>",
+                                "state": "<initial, search, form, feedback, confirmation>",
+                                "lockContext": <true/false>,
+                                "metadata": <object>
+                            },
+                            "ui_changes": {
+                                "show": ["productDetail" | "RecommendationArea" | "offerFormModal"],
+                                "hide": ["productDetail" | "RecommendationArea" | "offerFormModal"],
+                                "update": {
+                                    "productDetail": "<değer>",
+                                    "RecommendationArea": "<değer>",
+                                    "offerFormModal": "<değer>"
                                 }
                             }
-                        ]`.trim();
+                        }
+                        `.trim();
 
 
         console.log("[intentSystemPrompt] Final context built.")
@@ -111,8 +109,8 @@ const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
     })
 }
 
-module.exports = async (user, human_message, memory = [], scoped = {}) => {
-    return intentSystemPrompt(user, human_message, memory = [], scoped = {})
+module.exports = async (user, memory = [], scoped = {}) => {
+    return intentSystemPrompt(user, memory = [], scoped = {})
 }
 
 /**

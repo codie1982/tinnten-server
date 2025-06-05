@@ -273,4 +273,4 @@ class ProductSuggestTool extends BaseTool {
   }
 }
 
-module.exports = ProductSuggestTool
+module.exports = {ProductSuggestTool}

@@ -1,16 +1,16 @@
-const BaseTool = require("../tools/BaseTool");
+const BaseTool = require("./BaseTool");
 const ProductsDB = require("../../db/ProductsDB");
 
-class ProductSearchTool extends BaseTool {
+class OfferSearchTool extends BaseTool {
   constructor() {
-    super("ProductSearchTool");
+    super("OfferSearchTool");
     this.vectorLimit = 5;
     this.vectorThreshold = 0.75;
   }
 
   // Bu araç hangi intent'ler için çalışmalı?
   shouldHandle(intent) {
-    return intent.intent === "product_search" || intent.tool === "ProductSearchTool";
+    return intent.intent === "offer_search" || intent.tool === "OfferSearchTool";
   }
 
   /**
@@ -21,8 +21,9 @@ class ProductSearchTool extends BaseTool {
    */
   async execute({ query, context, intent }) {
     try {
-      this.log("Ürün arama başlatıldı:", { query });
+      this.log("Hizmet arama başlatıldı:", { query });
 
+      
       // [1] Açıklama embed edilerek vektöre çevrilir
       const vectorText = query.trim().slice(0, 1000);
       const embedURL = `${process.env.EMBEDDING_URL}/api/v10/llm/vector`;
@@ -33,16 +34,13 @@ class ProductSearchTool extends BaseTool {
 
       // [2] MongoDB vektörel arama
       const db = new ProductsDB();
-      const vectorResults = await db.searchVector(vector, this.vectorLimit,{
-        type: "services", // Sadece ürünleri aramak için filtre
-        pricetype: "offer_based" // Ürün fiyat tipi
-      });
+      const vectorResults = await db.searchVector(vector, this.vectorLimit);
 
       const matched = vectorResults.filter(item => item.score >= this.vectorThreshold);
       const count = matched.length;
 
       return {
-        type: "product_list",
+        type: "services_list",
         message: `${count} uygun ürün bulundu.`,
         products: matched.map(item => ({
           _id: item._id,
@@ -86,4 +84,4 @@ class ProductSearchTool extends BaseTool {
   }
 }
 
-module.exports = { ProductSearchTool };
+module.exports = { OfferSearchTool };

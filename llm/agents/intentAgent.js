@@ -11,11 +11,10 @@ class IntentAgent extends BaseAgent {
   async getIntent(user, human_message, memory = [], scoped = {}) {
     try {
       console.log("[IntentAgent] Fetching intent system prompt...");
-      const system_message = await intentSystemPrompt(user, human_message, memory, scoped);
+      const system_message = await intentSystemPrompt(user, memory, scoped);
 
-      // MCP mesajı oluştur
       const mcpMessage = this.createMCPMessage(
-        null, // context_id gerekmiyorsa null
+        null,
         [
           {
             role: "system",
@@ -28,7 +27,7 @@ class IntentAgent extends BaseAgent {
             timestamp: new Date().toISOString(),
           },
         ],
-        false // Stream kullanılmıyor
+        false
       );
 
       console.log("[IntentAgent] Sending MCP chat completion request...");
@@ -36,37 +35,38 @@ class IntentAgent extends BaseAgent {
 
       console.log("[IntentAgent] Completion response received:", response);
 
-      // MCP yanıtından içeriği al
       const rawResponse = response.messages[0].content;
-      // JSON’u parse et
-      const parsedResponse = this.cleanJSON(rawResponse);
-      console.log("[IntentAgent] Parsed response:", parsedResponse);
+      const parsedIntent = this.cleanJSON(rawResponse);
+      console.log("[IntentAgent] Parsed intent:", parsedIntent);
 
-      // Şemayı doğrula
-      const validIntents = this.validateIntents(parsedResponse);
-      return validIntents;
+      const validIntent = this.validateIntent(parsedIntent, human_message);
+      return validIntent;
     } catch (error) {
       console.error("[IntentAgent] Intent analiz hatası:", error);
-      return [
-        {
-          intent: "chat",
-          tool: null,
-          confidence: 0.8,
-          priority: 3,
-          related_id: null,
-          query: human_message,
-          fallback: {
-            tool: "QuestionTool",
-            query: "Ne hakkında konuşmak istiyorsunuz?",
-          },
+      return {
+        intent: "chat",
+        tool: null,
+        confidence: 0.8,
+        priority: 3,
+        related_id: null,
+        query: human_message,
+        fallback: {
+          tool: "QuestionTool",
+          query: "Ne hakkında konuşmak istiyorsunuz?",
         },
-      ];
+        context: {
+          id: "yok",
+          type: "yok",
+          state: "initial",
+          lockContext: false,
+          metadata: {},
+        },
+        ui_changes: { show: [], hide: [], update: {} }
+      };
     }
   }
 
-
-  validateIntents(intents) {
-    // Geçerli intent ve tool listesi
+  validateIntent(intent, rawQuery = "") {
     const validIntents = [
       "recommendation",
       "production_info",
@@ -77,6 +77,11 @@ class IntentAgent extends BaseAgent {
       "chatabouthproduct",
       "chatabouthservices",
       "supplier_search",
+      "offer_search",
+      "offer_request",
+      "offer_form",
+      "offer_feedback",
+      "offer_confirm",
     ];
     const validTools = [
       "ProductSuggestTool",
@@ -88,50 +93,63 @@ class IntentAgent extends BaseAgent {
       "ServiceUsageTool",
       "SupplierSearchTool",
       "QuestionTool",
+      "OfferSearchTool",
+      "OfferRequestTool",
+      "OfferFormTool",
+      "OfferFeedbackTool",
+      "OfferConfirmTool",
       null,
     ];
 
-    return intents.filter((intent) => {
-      // confidence kontrolü
-      if (intent.confidence < 0.15) return false;
-      // intent ve tool doğrulama
-      if (!validIntents.includes(intent.intent)) return false;
-      if (!validTools.includes(intent.tool)) return false;
-      // priority 1-3 arası olmalı
-      if (intent.priority < 1 || intent.priority > 3) intent.priority = 1;
-      // conditions doğrulama
-      if (intent.conditions) {
-        intent.conditions = intent.conditions.filter((cond) => {
-          return (
-            typeof cond.condition === "string" &&
-            validTools.includes(cond.tool) &&
-            typeof cond.query === "string" &&
-            (cond.params === undefined || typeof cond.params === "object")
-          );
-        });
+    if (!intent || intent.confidence < 0.15) return null;
+    if (!validIntents.includes(intent.intent)) return null;
+    if (!validTools.includes(intent.tool)) return null;
+
+    // priority default ayarı
+    if (intent.priority < 1 || intent.priority > 3) {
+      intent.priority = 1;
+    }
+
+    // Koşullar
+    if (intent.conditions) {
+      intent.conditions = intent.conditions.filter((cond) => {
+        return (
+          typeof cond.condition === "string" &&
+          validTools.includes(cond.tool) &&
+          typeof cond.query === "string" &&
+          (cond.params === undefined || typeof cond.params === "object")
+        );
+      });
+    }
+
+    // nextTool
+    if (intent.nextTool) {
+      if (
+        !validTools.includes(intent.nextTool.tool) ||
+        typeof intent.nextTool.query !== "string" ||
+        typeof intent.nextTool.condition !== "string"
+      ) {
+        delete intent.nextTool;
       }
-      // nextTool doğrulama
-      if (intent.nextTool) {
-        if (
-          !validTools.includes(intent.nextTool.tool) ||
-          typeof intent.nextTool.query !== "string" ||
-          typeof intent.nextTool.condition !== "string"
-        ) {
-          delete intent.nextTool;
-        }
+    }
+
+    // retryTool
+    if (intent.retryTool) {
+      if (
+        !validTools.includes(intent.retryTool.tool) ||
+        typeof intent.retryTool.query !== "string" ||
+        typeof intent.retryTool.maxRetries !== "number"
+      ) {
+        delete intent.retryTool;
       }
-      // retryTool doğrulama
-      if (intent.retryTool) {
-        if (
-          !validTools.includes(intent.retryTool.tool) ||
-          typeof intent.retryTool.query !== "string" ||
-          typeof intent.retryTool.maxRetries !== "number"
-        ) {
-          delete intent.retryTool;
-        }
-      }
-      return true;
-    });
+    }
+
+    // Varsayılan query alanı yoksa user mesajı gir
+    if (!intent.query) {
+      intent.query = rawQuery;
+    }
+
+    return intent;
   }
 }
 

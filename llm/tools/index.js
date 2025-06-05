@@ -1,10 +1,10 @@
-const ProductDetailTool  = require("./ProductDetailTool");
+const {ProductSearchTool}  = require("./ProductSearchTool");
+const {OfferSearchTool}  = require("./OfferSearchTool");
 const QuestionTool       = require("./QuestionTool");
 const ProductSuggestTool = require("./ProductSuggestTool");
 
 module.exports = {
-  ProductDetailTool : new ProductDetailTool(),   // ⬅️  burada new
-  QuestionTool      : new QuestionTool(),
-  ProductSuggestTool: new ProductSuggestTool(),
+  ProductSearchTool : new ProductSearchTool(),   // ⬅️  burada new
+  OfferSearchTool : new OfferSearchTool(),   // ⬅️  burada new
   // …diğer tool’lar aynı şekilde
 };

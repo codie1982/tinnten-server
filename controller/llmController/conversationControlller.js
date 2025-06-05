@@ -178,10 +178,11 @@ const conversation = asyncHandler(async (req, res) => {
 
     console.time("🔹 IntentAgent");
     const intentAgent = new IntentAgent();
-    await intentAgent.start(MODEL2, 0.2);
-    const intents = await intentAgent.getIntent(userkey, human_message, conversationMessages, {
+    await intentAgent.start(MODEL2, 0.1);
+    const intent = await intentAgent.getIntent(userkey, human_message, conversationMessages, {
       selectedProduct: productid || {},
     });
+    console.log("intents", intent)
     console.timeEnd("🔹 IntentAgent");
 
     console.time("🔹 Orchestrator");
@@ -192,17 +193,18 @@ const conversation = asyncHandler(async (req, res) => {
       conversation_memory: conversationSummary,
       conversation_history: conversationMessages,
     };
-    const orchestratorResponse = await orchestrator.executeIntents(intents, ctx);
+    const orchestratorResponse = await orchestrator.executeIntents(intent, ctx);
     console.timeEnd("🔹 Orchestrator");
 
     console.time("🔹 GeneralChatResponseAgent");
     const generalChatResponseAgent = new GeneralChatResponseAgent();
     await generalChatResponseAgent.start(MODEL2, 0.2);
 
+    console.log("intents", intents)
     console.log("systemMessageid", systemMessageid)
     const preAssistant = await MessageFactory
       .createMessage("system_message", userid, conversationid)
-      .getPayload(null, human_message, "", intents, orchestratorResponse,systemMessageid);
+      .getPayload(null, human_message, "", intents, orchestratorResponse, systemMessageid);
 
 
     const mcpResponse = await generalChatResponseAgent.getChatResponseContext(
@@ -227,7 +229,7 @@ const conversation = asyncHandler(async (req, res) => {
     console.timeEnd("🔹 GeneralChatResponseAgent");
 
     console.time("🔹 Redis ve DB Kayıtları");
-    console.log("preAssistant", preAssistant);
+
     await manager.setMessage(userid, conversationid, preAssistant);
 
     dbWorkerChannel.sendToQueue('db_queue', Buffer.from(JSON.stringify({
@@ -443,7 +445,7 @@ const detail = asyncHandler(async (req, res) => {
 
       conversationResponse = new Conversation({ ...redisBase, summary: redisSummary });
 
-      conversationMessages =  redisMessage.map((msgStr) => {
+      conversationMessages = redisMessage.map((msgStr) => {
         try {
           return JSON.parse(msgStr);
         } catch (err) {
