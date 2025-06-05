@@ -8,7 +8,7 @@ class Conversation {
       this.conversationid = data.conversationid;
       this.userid = data.userid;
       this.title = data.title || "";
-      this.messages = (data.messages || []).map(msg => new Message(msg));
+      //this.messages = (data.messages || []).map(msg => new Message(msg));
       this.behaviors = data.behaviors || [];
       this.userBehaviorModel = data.userBehaviorModel || "";
       this.context = data.context || "";
@@ -39,9 +39,9 @@ class Conversation {
     return this.title;
   }
 
-  getMessages() {
+  /* getMessages() {
     return this.messages.map((item) => new Message(item));
-  }
+  } */
 
   getMessage(index) {
     return this.messages.length > index ? this.messages[index] : null;
@@ -92,14 +92,14 @@ class Conversation {
     this.title = title;
   }
 
-  setMessages(messages) {
+ /*  setMessages(messages) {
     this.messages = messages.map(msg => new Message(msg));
-  }
+  } */
 
-  addMessage(messageData) {
+ /*  addMessage(messageData) {
     const message = new MessageModel(messageData);
     this.messages.push(message);
-  }
+  } */
 
 
   setBehaviors(behaviors) {

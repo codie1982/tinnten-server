@@ -2,10 +2,10 @@ const BaseAgent = require("./BaseAgent")
 const summarizeContext = require("../system_promt/summarizeContext")
 
 class SummarizeAgent extends BaseAgent {
-    async getSummarize(conversation) {
+    async summarize(messages) {
         try {
             console.log("[RecomAgent] Fetching intent system prompt...");
-            const system_message = await summarizeContext(conversation);
+            const system_message = await summarizeContext(messages);
             //console.log("[RecomAgent] Intent context received:", system_message);
 
 
@@ -21,7 +21,7 @@ class SummarizeAgent extends BaseAgent {
                     },
                     {
                         role: "user",
-                        content: human_message,
+                        content: "Önceki konuşmaların bir özetini çıkarmalısın.",
                         timestamp: new Date().toISOString(),
                     },
                 ],

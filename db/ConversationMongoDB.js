@@ -27,13 +27,13 @@ class ConversationMongoDB extends BaseDB {
             if (!conversation) throw new Error("Conversation not found.");
 
             // 💬 Tüm mesajları MessageDB üzerinden oku (her biri recommendation içeriğiyle birlikte gelir)
-            const messageDB = new MessageDB()
+         /*    const messageDB = new MessageDB()
             const messages = await Promise.all(
                 conversation.messages.map(id =>
                     messageDB.read({ _id: id }) 
                 )
             );
-            conversation.messages = messages;
+            conversation.messages = messages; */
             return conversation;
         } catch (error) {
             throw new Error("MongoDB: Konuşma getirilirken hata oluştu - " + error.message);
@@ -46,13 +46,15 @@ class ConversationMongoDB extends BaseDB {
             if (!conversation) throw new Error("Conversation not found.");
 
             // 💬 Tüm mesajları MessageDB üzerinden oku (her biri recommendation içeriğiyle birlikte gelir)
-            const messageDB = new MessageDB()
-            const messages = await Promise.all(
+            //const messageDB = new MessageDB()
+
+           /*  const messages = await Promise.all(
                 conversation.messages.map(id =>
-                    messageDB.read({ _id: id })  // burada `read()` fonksiyonu recommendation'ları hydrate eder
+                    messageDB.read({ messageid: id })  // burada `read()` fonksiyonu recommendation'ları hydrate eder
                 )
-            );
-            conversation.messages = messages;
+            ); */
+            //conversation.messages =await messageDB.read({ conversationid: conversation.conversationid });
+            //conversation.messages = messages;
             return conversation;
         } catch (error) {
             throw new Error(

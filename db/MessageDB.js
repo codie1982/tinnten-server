@@ -16,21 +16,21 @@ class MessageDB extends BaseDB {
 
     async read(query) {
         try {
-            const msg = await Message.findOne(query).lean();
-            if (!msg) throw new Error("Mesaj bulunamadı");
-            // Eğer recommendation varsa detaylandır
-            const recommendationDB = new RecommendationDB();
-            if (msg.recommendation) {
-                msg.recommendation = await recommendationDB.read({ _id: msg.recommendation });
-            }
+            const msg = await Message.findOne(query)
             return msg;
-
         } catch (error) {
             throw new Error("MongoDB: Mesaj getirilirken hata oluştu - " + error.message);
         }
     }
 
-
+    async readMany(query) {
+        try {
+            const msg = await Message.find(query)
+            return msg;
+        } catch (error) {
+            throw new Error("MongoDB: Mesaj getirilirken hata oluştu - " + error.message);
+        }
+    }
     async update(query, updateData) {
         try {
             return await Message.findOneAndUpdate(

@@ -151,8 +151,28 @@ async function sendOfferRequestGeneralEmail(to, name, resetUrl) {
   await channel.close();
   await connection.close();
 }
+async function sendOfferResponseEmail(to, name, resetUrl) {
+  const connection = await getRabbitConnection();
+  const channel = await connection.createChannel();
+  const queue = 'email_queue';
+
+  await channel.assertQueue(queue, { durable: true });
+
+  const message = {
+    type: 'offer_request_general',
+    data: { to, name, subject: 'Size uygun bir talep var.' },
+    content: { username, offer_description }
+  };
+
+  channel.sendToQueue(queue, Buffer.from(JSON.stringify(message)), { persistent: true });
+
+  console.log(`📨 Şifre sıfırlama maili kuyruğa eklendi: ${to}`);
+
+  await channel.close();
+  await connection.close();
+}
 module.exports = {
   sendVerificationEmail, checkMailVerifyCode,
   sendWelcomeMail, sendResetPasswordEmail, sendOfferRequestEmail,
-  sendOfferCompleteEmail, sendOfferRequestGeneralEmail
+  sendOfferCompleteEmail, sendOfferRequestGeneralEmail,sendOfferResponseEmail
 }

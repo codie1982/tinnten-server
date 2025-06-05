@@ -4,47 +4,55 @@ const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
         const recent = memory.slice(-6)
             .map(m => `${m.role}: ${m.content}`)
             .join("\n");
-        let context = `
-                        SEN TINNTEN’İN NİYET ÇIKARIM MOTORUSUN (INTENT ENGINE).
+        let context = `SEN TINNTEN’İN NİYET ÇIKARIM MOTORUSUN (INTENT ENGINE).
 
                         ### A. Yapman Gereken
                         1. Kullanıcının son mesajını ve son 3 konuşma satırını oku.
-                        2. Tüm olası niyetleri (intent) üret; 0‑N tane olabilir.
+                        2. Tüm olası niyetleri (intent) üret; 0-N tane olabilir.
                         3. Her intent için **yalnızca gerekli alanları** doldur.
+                        4. Ürün/hizmet ortak alanda ilerlemektedir. Yani product bir üründe olabilir bir hizmet de.
+                        **5. Mevcut bağlam (context) ve durum (state) varsa, intent'leri bağlama uygun şekilde önceliklendir ve confidence skorlarını bağlam ağırlığına göre artır.**
+                        **6. Çok aşamalı işlemler için (örneğin, teklif alma süreci), mevcut duruma (state) göre intent'leri sırala ve aşamalar arasında geçiş yap.**
+                        **7. Kullanıcı açıkça konuyu değiştirmediği sürece (örneğin, "yeni ürün ara" gibi bir ifade), mevcut bağlam ve duruma sadık kal.**
+                        **8. UI değişikliklerini, yalnızca 'productDetail', 'RecommendationArea' ve 'offerFormModal' panelleri için tanımla. 'chat' bloğu her zaman aktif olduğundan, bu panel için UI değişikliği belirtme.**
 
-                        ### B. Geçerli intent ve tool listesi
-                        | intent | tool adı | açıklama |
+                        ### B. Geçerli Intent ve Tool Listesi
+                        | intent              | tool adı           | açıklama |
+                        |--------------------|--------------------|----------|
                         | recommendation      | ProductSuggestTool | ürün/hizmet önerisi |
-                        | production_info     | ProductDetailTool  | seçili ürün bilgisi |
-                        | services_info       | ServiceDetailTool  | seçili hizmet bilgisi |
-                        | search_product      | ProductSearchTool  | metin/vektör ile ürün arama |
-                        | search_service      | ServiceSearchTool  | metin/vektör ile hizmet arama |
+                        | production_info     | ProductDetailTool  | seçili ürün/hizmet bilgisi |
+                        | search_product      | ProductSearchTool  | metin/vektör ile ürün/hizmet arama |
                         | chat                | null               | genel sohbet |
-                        | chatabouthproduct   | ProductUsageTool   | ürünle ne yapılır sohbeti |
-                        | chatabouthservices  | ServiceUsageTool   | hizmetle ilgili sohbet |
-                        | supplier_search     | SupplierSearchTool | tedarikçi/alıcı arama |
+                        | chatabouthproduct  | ProductUsageTool   | ürün/hizmet ile ne yapılır sohbeti |
+                        | supplier_search    | SupplierSearchTool | tedarikçi/alıcı arama |
+                        | offer_request      | OfferRequestTool   | ürün/hizmet için teklif oluşturma |
+                        | offer_form         | OfferFormTool      | teklif formu doldurma |
+                        | offer_feedback     | OfferFeedbackTool  | teklif geri dönüşleri |
+                        | offer_confirm      | OfferConfirmTool   | teklif onayı |
 
-                        Kurallar:
-                        • confidence < 0.15 ise intent oluşturma.
-                        • Belirsiz isteklerde (confidence < 0.4) "fallback.tool = 'QuestionTool'" ve uygun soru taslağı için "fallback.query" doldur.
-                        • Sadece tablo‑daki intent & tool adlarını kullan.
-                        • conditions, nextTool ve retryTool alanlarını, uygun olduğunda doldur:
-                        - conditions: Koşullu araç seçimleri için (örneğin, no_product, price_exceeds, no_supplier).
-                        - nextTool: Sonraki araç çağrısı için (örneğin, fiyat aşılırsa öneri).
-                        - retryTool: Tekrar deneme için (örneğin, arama başarısızsa).
+                        **Kurallar:**
+                        - **confidence < 0.15 ise intent oluşturma.**
+                        - **Belirsiz isteklerde (confidence < 0.4), "fallback.tool = 'QuestionTool'" ve uygun soru taslağı için "fallback.query" doldur.**
+                        - **Sadece tablo‑daki intent ve tool adlarını kullan.**
+                        - **conditions, nextTool ve retryTool alanlarını, uygun olduğunda doldur:**
+                        - **conditions: Koşullu araç seçimleri için (örneğin, no_product, price_exceeds, no_supplier).**
+                        - **nextTool: Sonraki araç çağrısı için (örneğin, fiyat aşılırsa öneri, teklif formu tamamlanırsa geri dönüş).**
+                        - **retryTool: Tekrar deneme için (örneğin, arama başarısızsa).**
+                        - **context: Bağlam, mevcut ürün, hizmet veya işlemle ilgili bilgileri (id, type, state, metadata) içerir.**
+                        - **lockContext: Bağlam kilitliyse, intent'ler yalnızca mevcut bağlamla ilişkili olanlarla sınırlanır.**
+                        - **state: Çok aşamalı işlemler için mevcut durumu (initial, search, form, feedback, confirmation) takip eder.**
+                        - **Kullanıcı açıkça konuyu değiştirmezse, mevcut bağlam ve duruma sadık kal.**
+                        - **ui_changes: Yalnızca 'productDetail', 'RecommendationArea' ve 'offerFormModal' panelleri için değişiklikleri tanımla. 'chat' bloğu her zaman aktif olduğundan, bu panel için UI değişikliği belirtme.**
 
                         ### D. Bağlam
-                        Seçili ürün ID  : ${scoped.selectedProduct || "yok"}
-                        Seçili hizmet ID: ${scoped.selectedService || "yok"}
+                        **Seçili ürün ID: ${scoped.selectedProduct || "yok"}**  
+                        **Bağlam: ${scoped.context || { id: "yok", type: "yok", state: "initial", lockContext: false, metadata: {} }}**  
+                        **Son 3 mesaj: ${recent}**  
+                        **Kullanıcı: ${user?.name || "Anonim"}**  
+                        **Kullanıcı mesajı: "${human_message}"**
 
-                        Son 3 mesaj:
-                        ${recent}
-                        Kullanıcı: ${user?.name || "Anonim"}
-
-                        Kullanıcı mesajı: "${human_message}"
-
-                        YANITIN TAMAMINI, EK AÇIKLAMA OLMADAN, YALNIZCA ŞU JSON OLARAK DÖN:
-                        Kesinlikle: Başka hiçbir metin, yorum veya açıklama ekleme.
+                        **YANITIN TAMAMINI, EK AÇIKLAMA OLMADAN, YALNIZCA ŞU JSON OLARAK DÖN:**  
+                        **Kesinlikle: Başka hiçbir metin, yorum veya açıklama ekleme.**
 
                         ### C. JSON Çıktı Şeması
                         ***json
@@ -57,30 +65,45 @@ const intentSystemPrompt = (user, human_message, memory = [], scoped = {}) => {
                                 "related_id": "<varsa ürün/hizmet ID>",
                                 "query": "<opsiyonel>",
                                 "fallback": {
-                                "tool": "<opsiyonel>",
-                                "query": "<opsiyonel>"
+                                    "tool": "<opsiyonel>",
+                                    "query": "<opsiyonel>"
                                 },
                                 "conditions": [
-                                {
-                                    "condition": "<koşul adı>",
-                                    "tool": "<tool adı>",
-                                    "query": "<sorgu>",
-                                    "params": <object>
-                                }
+                                    {
+                                        "condition": "<koşul adı>",
+                                        "tool": "<tool adı>",
+                                        "query": "<sorgu>",
+                                        "params": <object>
+                                    }
                                 ],
                                 "nextTool": {
-                                "tool": "<tool adı>",
-                                "query": "<sorgu>",
-                                "condition": "<koşul adı>"
+                                    "tool": "<tool adı>",
+                                    "query": "<sorgu>",
+                                    "condition": "<koşul adı>"
                                 },
                                 "retryTool": {
-                                "tool": "<tool adı>",
-                                "maxRetries": <sayı>,
-                                "query": "<sorgu>"
+                                    "tool": "<tool adı>",
+                                    "maxRetries": <sayı>,
+                                    "query": "<sorgu>"
+                                },
+                                "context": {
+                                    "id": "<ürün ID, teklif ID veya yok>",
+                                    "type": "<product, offer, supplier veya yok>",
+                                    "state": "<initial, search, form, feedback, confirmation>",
+                                    "lockContext": <true/false>,
+                                    "metadata": <object>
+                                },
+                                "ui_changes": {
+                                    "show": ["productDetail" | "RecommendationArea" | "offerFormModal"],
+                                    "hide": ["productDetail" | "RecommendationArea" | "offerFormModal"],
+                                    "update": {
+                                        "productDetail": "<değer>",
+                                        "RecommendationArea": "<değer>",
+                                        "offerFormModal": "<değer>"
+                                    }
                                 }
                             }
-                        ]
-                        `.trim();
+                        ]`.trim();
 
 
         console.log("[intentSystemPrompt] Final context built.")

@@ -1,3 +1,16 @@
+/*
+  Bu worker, RabbitMQ üzerinden gelen veritabanı işlemlerini dinler ve işler.
+  İşlemler:
+  - insert: Yeni belge ekler
+  - update: Belge günceller
+  - update_one: Tek belge günceller
+  - upsert: Belge ekler veya günceller
+  - bulk_insert: Birden fazla belge ekler
+  - find_and_update: Belge bulur ve günceller
+  - delete: Belge siler
+
+  Her işlem için uygun MongoDB modelini kullanır.
+*/
 require("dotenv").config();
 require("colors")
 const { connectRabbitWithRetry } = require('../config/rabbitConnection');
@@ -11,6 +24,7 @@ const {
   handleFindAndUpdate,
   handleDelete,
 } = require("../services/dbQueryService");
+const MAX_RETRIES = 5;
 
 async function startDBWorker() {
   connectDB();
@@ -25,6 +39,9 @@ async function startDBWorker() {
       if (!msg) return;
 
       const message = JSON.parse(msg.content.toString());
+      const retries = msg.properties.headers['x-retry-count'] || 0;
+
+
       console.log("📥 Gelen DB mesajı:", message);
 
       if (!message?.type || !message?.collection) {
@@ -63,8 +80,22 @@ async function startDBWorker() {
 
         channel.ack(msg);
       } catch (error) {
-        console.error("❌ DB işlemi sırasında hata oluştu:", error);
-        channel.nack(msg, false, true); // yeniden denenecek
+        console.error("❌ DB işlemi sırasında hata oluştu:", error.message);
+
+        if (retries >= MAX_RETRIES) {
+          console.error("🚨 Maksimum tekrar denemesi aşıldı. Mesaj siliniyor:", message);
+          return channel.ack(msg); // DLQ kullanılmıyorsa temizle
+        }
+
+        // Retry için kuyruğa yeniden gönder
+        channel.sendToQueue(queue, Buffer.from(msg.content), {
+          persistent: true,
+          headers: {
+            "x-retry-count": retries + 1,
+          },
+        });
+
+        channel.ack(msg); // mevcut mesajı sil
       }
     });
   }).catch((error) => {
@@ -74,3 +105,48 @@ async function startDBWorker() {
 }
 
 startDBWorker();
+
+
+/*
+Örnek mesajlar:
+
+  const message = {
+    type: "insert",
+    collection: "user",
+    payload: {
+      name: "Mehmet Kaya",
+      email: "mehmet@example.com",
+      role: "customer"
+    }
+  };
+
+{
+  "type": "update",
+  "collection": "product",
+  "query": { "sku": "ABC123" },
+  "payload": { "price": 99.90, "stock": 42 }
+}
+
+{
+  "type": "upsert",
+  "collection": "agentresults",
+  "query": { "userid": "665ac...", "type": "extend_titles" },
+  "payload": {
+    "result": ["Otomatik Başlık 1", "Otomatik Başlık 2"],
+    "createdAt": "2024-06-01T12:00:00.000Z"
+  }
+}
+
+{
+  "type": "delete",
+  "collection": "user",
+  "query": { "email": "mehmet@example.com" }
+}
+
+{
+  "type": "find_and_update",
+  "collection": "user",
+  "query": { "email": "mehmet@example.com" },
+  "payload": { "role": "premium" }
+}
+*/

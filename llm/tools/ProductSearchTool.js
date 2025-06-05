@@ -55,7 +55,6 @@ class ProductSearchTool extends BaseTool {
         system_message: `Arama hatası: ${err.message}`,
         action: "none",
         products: [],
-        services: [],
       };
     }
   }

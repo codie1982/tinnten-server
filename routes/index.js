@@ -11,9 +11,7 @@ router.use('/company', require('./companyRouters'));
 router.use('/system-packages', require('./systemPackagesRoutes'));
 router.use('/conversation', require('./conversationsRouters'));
 router.use('/bid-request', require('./bidRequestRouters'));
-router.use('/bid-response', require('./bidResponseRouters'));
 router.use('/favorite', require('./favoriteRouters'));
 router.use('/upload', require('./uploadRouters'));
-
 
 module.exports = router;

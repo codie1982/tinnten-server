@@ -5,6 +5,7 @@ const recommendationSchema = new mongoose.Schema({
         enum: ["recommendation", "question"],
         required: true
     }, // Öneri türü
+    messageid: { type: mongoose.Schema.Types.ObjectId, ref: "message", required: true }, // İlgili mesaj ID'si
     score: { type: Number, default: 0 },   // Öneri puanı (vektör yakınlığı veya güven skoru)
     questions: [{ type: mongoose.Schema.Types.ObjectId, ref: "question", default: null }],
     producsGroup: [

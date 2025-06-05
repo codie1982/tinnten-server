@@ -1,56 +1,61 @@
 require("dotenv").config();
+require("colors")
 const { connectRabbitWithRetry } = require("../config/rabbitConnection");
 const { connectDB } = require("../config/db");
 
-const { ExtendTitlesAgent } = require("../agents/ExtendTitlesAgent");
-// İleride başka agentlar da eklenecekse buraya tanımlayabilirsin
+const SummarizeAgent = require("../llm/agents/summarizeAgent");
 
 async function startAgentWorker() {
-  connectDB();
+  await connectDB();
+
   connectRabbitWithRetry().then(async (connection) => {
     const channel = await connection.createChannel();
     const queue = "agent_queue";
+
     await channel.assertQueue(queue, { durable: true });
     console.log(`🤖 Agent kuyruğu dinleniyor: ${queue}`);
 
     channel.consume(queue, async (msg) => {
       if (!msg) return;
 
-      const message = JSON.parse(msg.content.toString());
-      console.log("📥 Agent mesajı geldi:", message);
+      let message;
+      try {
+        message = JSON.parse(msg.content.toString());
+      } catch (e) {
+        console.error("❌ Mesaj parse hatası:", e.message);
+        return channel.ack(msg);
+      }
 
-      if (!message?.type || !message?.userid) {
-        console.warn("❗️Eksik parametreler.");
+      if (!message?.type || !message?.userid || !message?.conversationid || !message?.messages) {
+        console.warn("❗️Eksik alanlar: userid, conversationid veya messages");
         return channel.ack(msg);
       }
 
       try {
         switch (message.type) {
-          case "extend_titles": {
-            const agent = new ExtendTitlesAgent();
-            await agent.start(message.model || "gpt-4", message.temperature || 0.4);
+          case "summarize_conversation": {
+            const agent = SummarizeAgent();
+            await agent.start(message.llm.model || "gpt-4", message.llm.temperature || 0.4);
+            let messages = message.data.system_messages || message.data.messages || [];
+            const summary = await agent.summarize(messages);
 
-            const titles = await agent.find(message.user, message.content);
+            const outMessage = {
+              type: "update",
+              collection: "conversation",
+              query: { conversationid: message.conversationid },
+              payload: { summary }
+            };
 
-            // MongoDB’ye yaz (örnek: agent_results koleksiyonu)
-            const AgentResult = require("../mongoModels/agentResultModel");
-            await new AgentResult({
-              userid: message.userid,
-              type: "extend_titles",
-              input: message.content,
-              result: titles,
-              createdAt: new Date(),
-            }).save();
+            channel.sendToQueue("db_queue", Buffer.from(JSON.stringify(outMessage)), {
+              persistent: true
+            });
 
-            console.log("✅ Agent çıktısı kaydedildi:", titles);
+            console.log("✅ Özeti db_queue’ya gönderildi:", summary);
             break;
           }
 
-          // 🎯 Yeni agentlar için yeni case'ler eklenebilir
-
           default:
             console.warn("🚫 Bilinmeyen agent türü:", message.type);
-            break;
         }
 
         channel.ack(msg);

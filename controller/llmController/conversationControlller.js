@@ -8,6 +8,7 @@ const ApiResponse = require("../../helpers/response.js")
 const User = require("../../mongoModels/userModel.js")
 const Conversation = require("../../models/Conversation")
 const ConversationDB = require("../../db/ConversationMongoDB.js");
+const Message = require("../../mongoModels/messageModel.js");
 const MessageDB = require("../../db/MessageDB.js");
 const MODEL1 = "gpt-3.5-turbo"
 const MODEL2 = "gpt-4o"
@@ -19,14 +20,15 @@ const GeneralChatResponseAgent = require("../../llm/agents/generalChatResponseAg
 const ConversationRedisManager = require("../../lib/ConversationRedisManager.js");
 const { getRabbitConnection } = require('../../config/rabbitConnection');
 
+const { isValidUUID } = require("../../utils/parser.js");
 const Joi = require("joi");
-const RedisDBManager = require("../../lib/RedisDB.js");
+const REDIS_TTL = 3600;
+
 const validateRequest = (body) => {
   const schema = Joi.object({
     conversationid: Joi.string().uuid().required(),
     human_message: Joi.string().min(1).required(),
     productid: Joi.string().allow(null, ""), // ✅ boş string ve null kabul edilir
-    servicesid: Joi.string().allow(null, ""), // ✅
   });
   return schema.validate(body);
 };
@@ -41,8 +43,9 @@ const convertObjectIdToString = (obj) => {
     return value;
   }));
 };
-let channel = null; // Global değişken olarak kanal oluştur
+let queryChannel = null; // Global değişken olarak kanal oluştur
 async function getRabbitChannel() {
+  let channel;
   if (!channel) {
     const connection = await getRabbitConnection();
     channel = await connection.createChannel();
@@ -51,218 +54,194 @@ async function getRabbitChannel() {
   }
   return channel;
 }
+async function getAgentWorkerChannel() {
+  let channel;
+  if (!channel) {
+    const connection = await getRabbitConnection();
+    channel = await connection.createChannel();
+    await channel.assertQueue('agent_queue', { durable: true });
+    console.log("📌 RabbitMQ Agent kanalı oluşturuldu ve kuyruk hazır.");
+  }
+  return channel;
+}
+async function getDbWorkerChannel() {
+  let channel;
+  if (!channel) {
+    const connection = await getRabbitConnection();
+    channel = await connection.createChannel();
+    await channel.assertQueue('db_queue', { durable: true });
+    console.log("📌 RabbitMQ DB kanalı oluşturuldu ve kuyruk hazır.");
+  }
+  return channel;
+}
 //privete public
 // @route   POST /api/conversation
 // @desc    Yeni bir konuşma başlatır veya mevcut bir konuşmayı günceller
 // @access  Private
 const conversation = asyncHandler(async (req, res) => {
-  try {
-    console.log("💬 [Conversation] Yeni istek alındı:", req.body);
+  console.time("🕒 Toplam Süre");
 
-    const { conversationid, human_message, productid, servicesid } = req.body;
+  try {
+    console.time("🔹 İstek Giriş");
+
+    const { conversationid, human_message, productid } = req.body;
     const access_token = req.kauth?.grant?.access_token?.token;
-    const channel = await getRabbitChannel();
-    // Giriş doğrulama
+    const queryAgentChannel = await getAgentWorkerChannel();
+    const dbWorkerChannel = await getDbWorkerChannel();
+
     const { error } = validateRequest(req.body);
     if (error) {
       return res.status(400).json(ApiResponse.error(400, "Geçersiz giriş", { message: error.message }));
     }
 
-    // 🛡️ Yetkilendirme
     if (!access_token) {
       return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
         message: "Token bulunamadı veya geçersiz."
       }));
     }
 
+    console.timeEnd("🔹 İstek Giriş");
+
+    console.time("🔹 Kullanıcı Doğrulama");
     const userkey = await Keycloak.getUserInfo(access_token);
     const user = await User.findOne({ keyid: userkey.sub });
     if (!user) {
       return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
-
     const userid = user._id;
+    console.timeEnd("🔹 Kullanıcı Doğrulama");
 
+    console.time("🔹 Konuşma Hazırlığı");
+    const systemMessageid = uuidv4();
     const manager = new ConversationRedisManager();
     const dbCon = new ConversationDB();
 
-    // 📁 Konuşma kontrolü
     if (!conversationid) {
       return res.status(400).json(ApiResponse.error(400, "conversationid eksik"));
     }
 
     let conversationDetail;
-    let conversation;
+    let conversationMessages = [];
+    let conversationSummary;
 
     if (await manager.isExist(userid, conversationid)) {
-      const detail = await manager.getConversation(userid, conversationid)
-      conversation = new Conversation({
-        ...detail.base, summary: detail.summary, message: detail.messages
-      })
-      console.log("conversation Redis", conversation)
+      const detail = await manager.getConversation(userid, conversationid);
+      conversationDetail = detail.base;
+      conversationMessages = detail.messages || [];
+      conversationSummary = detail.summary || "no summary";
     } else {
       try {
         conversationDetail = await dbCon.read({ userid, conversationid });
-        if (!conversationDetail) {
-          throw new Error("Geçersiz conversationid: Konuşma detayları bulunamadı");
-        }
+        const recentMessages = await Message.find({ userid, conversationid })
+          .sort({ createdAt: -1 }).limit(5).projection({ _id: 0 });
+        conversationMessages = recentMessages.reverse();
+        conversationSummary = conversationDetail.summary || "no summary";
+
+        await manager.setBase(userid, conversationid, new Conversation({
+          _id: conversationDetail._id.toString(),
+          conversationid: conversationid.toString(),
+          userid: userid.toString(),
+          title: conversationDetail.title,
+          status: conversationDetail.status,
+          delete: conversationDetail.delete,
+          createdAt: new Date(conversationDetail.createdAt).getTime(),
+          updatedAt: new Date(conversationDetail.updatedAt).getTime()
+        }), REDIS_TTL);
+
+        await manager.setMessages(userid, conversationid, conversationMessages, REDIS_TTL);
+        await manager.setSummary(userid, conversationid, { summary: conversationSummary }, REDIS_TTL);
+
       } catch (error) {
         console.error("Konuşma detayları alınırken hata:", error);
-        return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
-          message: "Konuşma detayları alınırken hata oluştu.",
-          error: error.message
-        }));
-      }
-      console.log("conversationDetail DB", conversationDetail)
-      //Redis'de yoksa detail yeniden redise yazılsın.
-      await manager.setBase(userid, conversationid, new Conversation({
-        _id: conversationDetail._id.toString(),
-        conversationid: conversationid.toString(),
-        userid: userid.toString(),
-        title: conversationDetail.title,
-        status: conversationDetail.status,
-        delete: conversationDetail.delete,
-        createdAt: new Date(conversationDetail.createdAt).getTime(),
-        updatedAt: new Date(conversationDetail.updatedAt).getTime()
-      }), 3600);
-      // Mesajları kaydet
-      await manager.setMessages(userid, conversationid, conversationDetail.messages, 3600);
-      // Memory (konuşma özeti) kaydet
-      await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
-
-      conversation = conversationDetail;
-      if (!conversationDetail) {
-        return res.status(400).json(ApiResponse.error(400, "Geçersiz conversationid"));
+        return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", { message: "Konuşma detayları alınırken hata oluştu." }));
       }
     }
+    console.timeEnd("🔹 Konuşma Hazırlığı");
 
-    if ((!conversation.messages || conversation.messages.length === 0) && (!human_message || human_message.trim() === "")) {
-      return res.status(400).json(ApiResponse.error(400, "Mesaj bloğu boş olamaz"));
-    }
-    // IntentAgent ile niyet belirleme
+    console.time("🔹 IntentAgent");
     const intentAgent = new IntentAgent();
-    try {
-      await intentAgent.start(MODEL2, 0.2);
-    } catch (error) {
-      console.error("[IntentAgent] Start error:", error);
-      return res.status(503).json(ApiResponse.error(503, "Niyet belirleme servisi kullanılamıyor"));
-    }
-    console.log("conversation.messages", conversation.messages)
-    const intents = await intentAgent.getIntent(userkey, human_message, conversation.messages, {
+    await intentAgent.start(MODEL2, 0.2);
+    const intents = await intentAgent.getIntent(userkey, human_message, conversationMessages, {
       selectedProduct: productid || {},
-      selectedservices: servicesid || {},
     });
+    console.timeEnd("🔹 IntentAgent");
 
-    // ToolOrchestrator
+    console.time("🔹 Orchestrator");
     const orchestrator = new ToolOrchestrator();
-    const messageGroupid = uuidv4();
     const ctx = {
-      context_id: uuidv4(),
       human_message,
-      user_id: userid,
       productid,
-      servicesid,
-      conversation_memory: conversation.memory || "",
-      conversation_history: conversation.messages || [],
+      conversation_memory: conversationSummary,
+      conversation_history: conversationMessages,
     };
     const orchestratorResponse = await orchestrator.executeIntents(intents, ctx);
-    console.log("\n🟢  ORCHESTRATOR RESPONSE:\n", JSON.stringify(orchestratorResponse, null, 2));
+    console.timeEnd("🔹 Orchestrator");
 
-    // GeneralChatResponseAgent ile yanıt üret
+    console.time("🔹 GeneralChatResponseAgent");
     const generalChatResponseAgent = new GeneralChatResponseAgent();
     await generalChatResponseAgent.start(MODEL2, 0.2);
-    console.log("[GeneralChatResponseAgent] GeneralChatResponseAgent started successfully");
 
-    // Mesajları kaydet
-    //Redis konuşmaya Ekle
-
-    const preHuman = await MessageFactory
-      .createMessage("human_message", userid, conversationid, "general", messageGroupid)
-      .saveHumanMessage(human_message);
-
-    await manager.addMessages(userid, conversationid, preHuman)
-    console.log("preHuman", preHuman)
-
-    //Redis konuşmaya Ekle
     const preAssistant = await MessageFactory
-      .createMessage("system_message", userid, conversationid, "general", messageGroupid)
-      .saveSystemMessage(null, "");
-
-    console.log("preAssistant", preAssistant)
-    await manager.addMessages(userid, conversationid, preAssistant)
+      .createMessage("system_message", userid, conversationid, systemMessageid)
+      .getPayload(null, human_message, "", intents, orchestratorResponse);
 
     const mcpResponse = await generalChatResponseAgent.getChatResponseContext(
       userkey,
       userid,
       conversationid,
-      { human_message: preHuman, system_message: preAssistant },
-      conversation.memory || "",
+      { human_message, system_message: preAssistant },
+      conversationSummary,
       orchestratorResponse
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms gecikme
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     if (!mcpResponse.messages[0]?.content) {
-      return res.status(500).json(ApiResponse.error(500, "Yanıt oluşturulamadı", { message: "GeneralChatResponseAgent yanıtı üretemedi" }));
+      return res.status(500).json(ApiResponse.error(500, "Yanıt oluşturulamadı", {
+        message: "GeneralChatResponseAgent yanıtı üretemedi"
+      }));
     }
-    const assistantContent = mcpResponse.messages[0].content;
 
-    //Sistem mesajını güncelle
-    //Rabbit ile güncelle
-    //Redis ile canlıda güncelle
+    preAssistant.system_message = mcpResponse.messages[0]?.content;
 
-    await MessageFactory.selectedMessage("system_message", userid, conversationid, "general", messageGroupid)
-      .updateSystemMessage(preAssistant._id, null, assistantContent);
+    console.timeEnd("🔹 GeneralChatResponseAgent");
 
-    await manager.updateMessages(userid, conversationid, preAssistant._id, {
-      ...preAssistant,
-      content: assistantContent
-    });
+    console.time("🔹 Redis ve DB Kayıtları");
+    await manager.addMessages(userid, conversationid, preAssistant);
+    dbWorkerChannel.sendToQueue('db_queue', Buffer.from(JSON.stringify({
+      type: "insert",
+      collection: "message",
+      payload: preAssistant,
+    })), { persistent: true });
+    console.timeEnd("🔹 Redis ve DB Kayıtları");
 
-    // Konuşma ve hafıza güncelleme
-    const messageIds = [preHuman._id, preAssistant._id];
+    console.time("🔹 Özetleme Kararı");
     let isSummarySaved = false;
-    let memoryUpdate = {};
+    if (conversationMessages.length >= 5 && conversationMessages.length % 5 === 0) {
+      const conversationSystemMessages = conversationMessages
+        .filter(msg => msg.type === "system_message")
+        .map(msg => msg.content);
 
-    if (conversation.messages.length >= 3) {
-      const message = {
-        type: 'conversation-summary',
-        data: { conversation, human_message: preHuman, system_message: preAssistant },
-        content: { userid: userid, conversationid: conversationid }
+      const summarizePayload = {
+        type: 'summarize_conversation',
+        llm: { model: MODEL1, temperature: 0.4 },
+        data: { system_message: conversationSystemMessages },
       };
-      channel.sendToQueue('conversation_queue', Buffer.from(JSON.stringify(message)), { persistent: true });
-      //Rabbit ile özeti çıkar ve konuşmayı güncelle
-
-      /* const tempConv = new Conversation(await dbCon.read({ userid, conversationid }));
-      const memoryManager = new MemoryManager();
-      memoryManager.loadMemory(tempConv);
-      const summary = await memoryManager.getSummarizedForMemory();
-      memoryUpdate.memory = summary.content;
-      isMemorySaved = true; */
+      queryAgentChannel.sendToQueue('agent_queue', Buffer.from(JSON.stringify(summarizePayload)), { persistent: true });
+      isSummarySaved = true;
     }
-    // Konuşma güncelleme
+    console.timeEnd("🔹 Özetleme Kararı");
 
-
-    //Redis ten konuşmayı
-
-
-    //await manager.updateMessages(userid, conversationid, messageid)
-
-
-    const message = {
-      type: 'update',
-      data: { messages: messageIds },
-      content: { userid: userid, conversationid: conversationid }
-    };
-    //DB'yi Rabbit ile conversation güncelle
-    channel.sendToQueue('conversation_queue', Buffer.from(JSON.stringify(message)), { persistent: true });
+    console.timeEnd("🕒 Toplam Süre");
 
     return res.status(200).json(ApiResponse.success(200, "Konuşma başarıyla oluşturuldu!", {
       success: true,
       isSummarySaved,
+      message: preAssistant,
     }));
 
   } catch (error) {
+    console.timeEnd("🕒 Toplam Süre");
     console.error("🔥 [Conversation] Hata:", error);
     return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
       message: "Konuşma oluşturulurken hata oluştu.",
@@ -354,36 +333,37 @@ const create = asyncHandler(async (req, res) => {
   try {
     // Yeni bir Conversation REdis oluştur
     const manager = new ConversationRedisManager();
+    const dbWorkerChannel = await getDbWorkerChannel();
     // **Yeni konuşma başlat**
-    let nConversation = new Conversation();
     let conversationid = uuidv4()
-    nConversation.setConversationId(conversationid)
-    nConversation.setUserId(userid)
-    const conversation = await new ConversationDB().create(nConversation)
+
     // Konuşmayı kaydet
-    if (conversation) {
-      let TTL = 3600
-      // Redis'te yoksa, verileri kaydet
-      await manager.setBase(userid, conversationid, new Conversation({
-        _id: conversation._id.toString(),
-        conversationid: conversationid.toString(),
-        userid: userid.toString(),
-        title: "",
-        status: conversation.status,
-        delete: conversation.delete,
-        createdAt: new Date(conversation.createdAt).getTime(),
-        updatedAt: new Date(conversation.updatedAt).getTime()
-      }), TTL);
+    const conversationPayload = new Conversation({
+      conversationid: conversationid.toString(),
+      userid: userid.toString(),
+      title: "",
+    })
+    console.log("conversationPayload", conversationPayload)
 
-      // Mesajları kaydet
-      await manager.setMessages(userid, conversationid, [], TTL);
-      // Memory (konuşma özeti) kaydet
-      await manager.setSummary(userid, conversationid, { summary: "no summary" }, TTL);
+    // Redis'te yoksa, verileri kaydet
+    await manager.setBase(userid, conversationid, conversationPayload, REDIS_TTL);
+    // Mesajları kaydet
+    await manager.setMessages(userid, conversationid, [], REDIS_TTL);
+    // Memory (konuşma özeti) kaydet
+    await manager.setSummary(userid, conversationid, { summary: "no summary" }, REDIS_TTL);
 
-      return res.status(200).json(ApiResponse.success(200, "Konuşma başlatıldı", { conversationid }));
-    } else {
-      return res.status(500).json(ApiResponse.error(500, "Konuşma başlatılamadı", { message: "Konuşma oluşturulurken bir hata oluştu" }));
-    }
+    let conversationDbMessage = {
+      type: "insert",
+      collection: "conversation",
+      payload: {
+        conversationid,
+        userid,
+      },
+    };
+    dbWorkerChannel.sendToQueue('db_queue', Buffer.from(JSON.stringify(conversationDbMessage)), { persistent: true });
+
+    return res.status(200).json(ApiResponse.success(200, "Konuşma başlatıldı", { conversationid }));
+
   } catch (error) {
     console.error("Login Error:", error.response?.data || error);
     return res.status(500).json(ApiResponse.error(500, "Kullanıcı bilgileri hatası: " + error.message, { message: "Sunucu hatası, lütfen tekrar deneyin" }));
@@ -392,54 +372,80 @@ const create = asyncHandler(async (req, res) => {
 //privete public
 const detail = asyncHandler(async (req, res) => {
   const { conversationid } = req.params;
-  let responseData;
+  const pageNum = parseInt(req.query.page || "1");
+  const limitNum = parseInt(req.query.limit || "10");
+
   if (!conversationid) {
-    return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", { message: "Geçerli bir konuşma ID'si sağlamalısınız" }));
+    return res.status(400).json(ApiResponse.error(400, "Konuşma ID eksik", {
+      message: "Geçerli bir konuşma ID'si sağlamalısınız"
+    }));
   }
-  // Redis manager'ı başlat
-  const manager = new ConversationRedisManager();
+
+  if (!isValidUUID(conversationid)) {
+    return res.status(400).json(ApiResponse.error(400, "Geçersiz Konuşma ID", {
+      message: "Geçerli bir UUID formatında konuşma ID'si sağlamalısınız"
+    }));
+  }
+
   try {
-    // Kullanıcı yetkilendirme kontrolü
     const access_token = req.kauth?.grant?.access_token?.token;
     if (!access_token) {
-      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", { message: "Token bulunamadı veya geçersiz." }));
+      return res.status(401).json(ApiResponse.error(401, "Yetkilendirme hatası", {
+        message: "Token bulunamadı veya geçersiz."
+      }));
     }
 
     const userkey = await Keycloak.getUserInfo(access_token);
     const user = await User.findOne({ keyid: userkey.sub });
-
     if (!user) {
-      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı", { message: "Geçersiz kullanıcı." }));
+      return res.status(404).json(ApiResponse.error(404, "Kullanıcı bulunamadı"));
     }
+
     const userid = user._id;
-    let fromRedis;
+    const manager = new ConversationRedisManager();
+
+    let responseData;
+    let conversationMessages = [];
+    let totalMessages = 0;
+    let fromRedis = false;
+
     const existingBase = await manager.getBase(userid, conversationid);
+
     if (existingBase) {
       fromRedis = true;
-      const redisData = await manager.getConversation(userid, conversationid)
-      responseData = new Conversation({
-        ...redisData.base, summary: redisData.summary, messages: redisData.messages
-      })
+      const redisData = await manager.getConversation(userid, conversationid);
+      responseData = new Conversation({ ...redisData.base, summary: redisData.summary });
+      const allMessages = redisData.messages || [];
+      totalMessages = allMessages.length;
 
-      //console.log("responseData FromRedis", redisData.messages)
+      const start = Math.max(totalMessages - (pageNum * limitNum), 0);
+      const end = totalMessages - ((pageNum - 1) * limitNum);
+      conversationMessages = allMessages.slice(start, end);
     } else {
-      fromRedis = false;
-      // Redis'te yoksa, MongoDB'den al
       const conDb = new ConversationDB();
-      const conversatinDetail = await conDb.read({ userid, conversationid });
+      const conversationDetail = await conDb.read({ userid, conversationid });
 
-      if (!conversatinDetail) {
-        return res.status(404).json(ApiResponse.error(404, "Konuşmaya ulaşılamıyor", { message: "Bu konuşma mevcut değil veya yetkiniz yok." }));
-      }
-      const conversationDetail = await conDb.read({ _id: conversation._id })
-      // Veri doğrulama
       if (!conversationDetail) {
-        console.error(`[detail] Eksik veri: userid veya conversationid eksik`, conv);
-        return res.status(500).json(ApiResponse.error(500, "Konuşma verisi geçersiz", { message: "Konuşma verisi işlenemedi." }));
+        return res.status(404).json(ApiResponse.error(404, "Konuşma bulunamadı"));
       }
 
-      // Redis'e verileri kaydet
-      await manager.setBase(userid, conversationid, new Conversation({
+      responseData = conversationDetail;
+
+      // Tüm mesaj sayısını al
+      totalMessages = await Message.countDocuments({ userid, conversationid });
+
+      const skipCount = Math.max(totalMessages - pageNum * limitNum, 0);
+
+      const recentMessages = await Message.find({ userid, conversationid })
+        .sort({ createdAt: 1 }) // eski → yeni
+        .skip(skipCount)
+        .limit(limitNum)
+        .lean();
+
+      conversationMessages = recentMessages;
+
+      // Redis’e yaz
+      const conversationPayload = new Conversation({
         _id: conversationDetail._id.toString(),
         conversationid: conversationDetail.conversationid.toString(),
         userid: conversationDetail.userid.toString(),
@@ -448,30 +454,28 @@ const detail = asyncHandler(async (req, res) => {
         delete: conversationDetail.delete,
         createdAt: new Date(conversationDetail.createdAt).getTime(),
         updatedAt: new Date(conversationDetail.updatedAt).getTime()
-      }), 3600);
-      // Mesajları kaydet
-      await manager.setMessages(userid, conversationid, conversationDetail.messages || [], 3600);
-      // Memory (konuşma özeti) kaydet
-      await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
+      });
 
-      console.log(`[detail] Konuşma ${conversatinDetail.conversationid} Redis'e kaydedildi.`);
-      // Yanıt için veriyi hazırla
-      responseData = conversatinDetail
+      await manager.setBase(userid, conversationid, conversationPayload, REDIS_TTL);
+      await manager.setMessages(userid, conversationid, await Message.find({ userid, conversationid }).sort({ createdAt: 1 }).lean(), REDIS_TTL);
+      await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, REDIS_TTL);
     }
 
-    // Başarıyla konuşmayı döndür
-    return res.status(200).json(
-      ApiResponse.success(200, "Konuşma detayı", {
-        conversation: responseData,
-        fromRedis
-      })
-    );
+    return res.status(200).json(ApiResponse.success(200, "Konuşma detayı", {
+      conversation: responseData,
+      messages: conversationMessages,
+      page: pageNum,
+      limit: limitNum,
+      totalMessages,
+      totalPages: Math.ceil(totalMessages / limitNum),
+      hasMore: pageNum * limitNum < totalMessages,
+      fromRedis
+    }));
   } catch (error) {
-    manager.disconnect()
-    console.error("[detail] Conversation Detail Error:", error.message);
-    return res.status(500).json(
-      ApiResponse.error(500, "Sunucu hatası", { message: "Sunucu hatası, lütfen tekrar deneyin" })
-    );
+    console.error("[detail] Hata:", error.message);
+    return res.status(500).json(ApiResponse.error(500, "Sunucu hatası", {
+      message: "Konuşma detayları alınırken bir hata oluştu."
+    }));
   }
 });
 
@@ -530,11 +534,11 @@ const historyies = asyncHandler(async (req, res) => {
           delete: conversationDetail.delete,
           createdAt: new Date(conversationDetail.createdAt).getTime(),
           updatedAt: new Date(conversationDetail.updatedAt).getTime()
-        }), 3600);
+        }), REDIS_TTL);
         // Mesajları kaydet
-        await manager.setMessages(userid, conversationid, conversationDetail.messages || [], 3600);
+        await manager.setMessages(userid, conversationid, conversationDetail.messages || [], REDIS_TTL);
         // Memory (konuşma özeti) kaydet
-        await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, 3600);
+        await manager.setSummary(userid, conversationid, { summary: conversationDetail.summary || "no summary" }, REDIS_TTL);
 
         console.log(`[historyies] Konuşma ${conversationid} Redis'e kaydedildi.`);
       } else {
@@ -655,8 +659,26 @@ const search = asyncHandler(async (req, res) => {
   }
 });
 
+const flush = asyncHandler(async (req, res) => {
+  try {
+    const manager = new ConversationRedisManager();
+    const deletedKeys = await manager.flushAll(); // tüm keyleri siler
+    return res.status(200).json({
+      success: true,
+      message: `Redis cache temizlendi.`,
+      deletedKeys
+    });
+  } catch (error) {
+    console.error("[Redis Flush Error]:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Redis cache temizlenemedi.",
+      error: error.message
+    });
+  }
+});
 module.exports = {
-  create, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion, search
+  create, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion, search, flush
 };
 
 

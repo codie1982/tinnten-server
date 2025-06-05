@@ -1,6 +1,6 @@
 const express = require("express")
 const route = express.Router()
-const { create, search, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion } = require("../controller/llmController/conversationControlller")
+const { create,flush, search, conversation, deleteConversation, updateTitle, historyies, detail, answer, deleteQuestion } = require("../controller/llmController/conversationControlller")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 
 
@@ -9,6 +9,7 @@ route.put("/answer", keycloak.protect(), answer)
 route.put("/title", keycloak.protect(), updateTitle)
 route.post("/create", keycloak.protect(), create)
 route.get("/search", keycloak.protect(), search)
+route.get("/flush", flush)
 route.delete("/", keycloak.protect(), deleteConversation)
 
 

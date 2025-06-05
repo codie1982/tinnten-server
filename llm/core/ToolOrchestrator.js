@@ -173,7 +173,6 @@ class ToolOrchestrator {
             messages: [],
             action: "respond",
             products: [],
-            services: [],
             system_message: ""
         };
 
@@ -185,11 +184,9 @@ class ToolOrchestrator {
         }
         for (const r of results) {
             if (r?.products) resp.products.push(...r.products);
-            if (r?.services) resp.services.push(...r.services);
         }
         /* benzersiz + limit (5) */
         resp.products = [...new Map(resp.products.map(p => [p.id, p])).values()].slice(0, 5);
-        resp.services = [...new Map(resp.services.map(s => [s.id, s])).values()].slice(0, 5);
 
         if (!resp.messages.length) {
             resp.messages.push({

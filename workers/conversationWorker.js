@@ -23,6 +23,7 @@ async function startWorker() {
           channel.ack(msg);
           return;
         } // Yanlış türdeyse mesajı işlenmiş gibi göster ve kuyruktan kaldır
+        
         try {
           switch (message.type) {
             case "update":

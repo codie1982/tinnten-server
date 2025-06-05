@@ -3,9 +3,7 @@ const conversationSchema = new mongoose.Schema({
 conversationid: { type: String, unique: true },                   // Konuşma için benzersiz UUID
   userid: { type: mongoose.Schema.Types.ObjectId, ref: "users", required: true },
   title: { type: String, default: "", required: false },
-  messages: [
-    { type: mongoose.Schema.Types.ObjectId, ref: "message", required: true, default: [] }
-  ],                                                        // Mesajlar
+ /*  messages: [    { type: String, required: true, default: [] }  ], */ // Mesajlar
   summary: { type: String, default: "no summary" },                                           // Konuşmanın genel bağlamı
   status: { type: String, enum: ["active", "completed"], default: "active" },
   delete: { type: Boolean, default: false }

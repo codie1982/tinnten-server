@@ -286,6 +286,10 @@ if (process.env.NODE_ENV !== "production")
     throw new Error("My first Sentry error!");
   });
 // Sadece direkt çalıştırıldığında dinle
+app.get("/ping", async (req, res) => {
+  res.status(200).json({ message: "pong" });
+});
+
 if (require.main === module) {
 
 }

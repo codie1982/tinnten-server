@@ -8,11 +8,10 @@ class ResponseAgent extends BaseAgent {
 
   async sendStreamToClient(userid, mcpMessage) {
     const userIdStr = userid.toString();
-    console.log("userIdStr", userIdStr)
     const user = await socketManager.getUserSocket(userIdStr);
 
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
+      //console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
     } ""
 
@@ -33,7 +32,7 @@ class ResponseAgent extends BaseAgent {
 
     const user = await socketManager.getUserSocket(userIdStr);
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
+      //console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
     }
 
@@ -54,7 +53,7 @@ class ResponseAgent extends BaseAgent {
     const user = await socketManager.getUserSocket(userIdStr);
 
     if (!user) {
-      console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
+      //console.warn("[ResponseAgent] WebSocket (ya da auth) bulunamadı:", userIdStr);
       return;
     }
 
@@ -71,9 +70,9 @@ class ResponseAgent extends BaseAgent {
   }
 
   async sendResponseStream(mcpMessage, onTokenCallback) {
-    console.log(`[ResponseAgent] MCP stream başlatılıyor, model: ${this.model_name}`);
+    //console.log(`[ResponseAgent] MCP stream başlatılıyor, model: ${this.model_name}`);
     return await this.sendAgentCompletionStream(mcpMessage, (token) => {
-      console.log(`[ResponseAgent] MCP Strema token, model: ${JSON.stringify(token)}`);
+      //console.log(`[ResponseAgent] MCP Strema token, model: ${JSON.stringify(token)}`);
       onTokenCallback({ ...token, delta: { ...token.delta, content: token.delta.content } });
     });
   }

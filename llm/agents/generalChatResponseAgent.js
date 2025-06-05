@@ -63,12 +63,12 @@ class GeneralChatResponseAgent extends ResponseAgent {
     }
 
     // ToolOrchestrator sonuçlarını birleştiren ve bağlama uygun yanıt üreten metod
-    async getChatResponseContext(user, userid, conversationid, messages, memory = "", orchestratorResults) {
+    async getChatResponseContext(user, userid, conversationid, messages, summary, orchestratorResults) {
         try {
-            const human_message = messages.human_message?.content || messages;
+            const human_message = messages.human_message || "bir cevap hazırlaman gerekiyor";
 
             // ToolOrchestrator sonuçlarını sistem prompt'una entegre et
-            const systemPrompt = this.buildSystemPrompt(user, human_message, memory, orchestratorResults);
+            const systemPrompt = this.buildSystemPrompt(user, summary, orchestratorResults);
 
             // MCP mesajını oluştur
             const mcpMessage = this.createMCPMessage(
@@ -123,7 +123,7 @@ class GeneralChatResponseAgent extends ResponseAgent {
     }
 
     // Sistem prompt'unu dinamik olarak oluştur
-    buildSystemPrompt(user, human_message, memory, orchestratorResults) {
+    buildSystemPrompt(user, summary, orchestratorResults) {
         let prompt = `
       SEN TINNTEN'İN SOHBET YANIT MOTORUSUN (CHAT RESPONSE ENGINE).
       
@@ -144,15 +144,11 @@ class GeneralChatResponseAgent extends ResponseAgent {
 
     
       ### Kullanıcı ile önceki mesajların bir özeti
-      ${memory}
-
-      ### Kullanıcı Mesajı
-      ${human_message}
+      ${summary}
       
-      ### Araç Sonuçları
-    `;
+      ### Araç Sonuçları `;
 
-        if (orchestratorResults?.products?.length || orchestratorResults?.services?.length) {
+        if (orchestratorResults?.products?.length) {
             prompt += `\n#### Ürün ve Hizmet Bilgileri\n`;
 
             if (orchestratorResults.products?.length) {
@@ -162,12 +158,6 @@ class GeneralChatResponseAgent extends ResponseAgent {
                 });
             }
 
-            if (orchestratorResults.services?.length) {
-                prompt += `**Hizmetler**:\n`;
-                orchestratorResults.services.forEach((service, index) => {
-                    prompt += `- ${index + 1}. ${service.name} (${service.price} TL): ${service.description}\n`;
-                });
-            }
         } else {
             prompt += `\n#### Ürün ve Hizmet Bilgileri\nHiçbir ürün veya hizmet bulunamadı.\n`;
         }

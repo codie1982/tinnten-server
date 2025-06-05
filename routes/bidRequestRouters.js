@@ -1,6 +1,6 @@
 const express = require("express")
 const route = express.Router()
-const { search, expand, makeform, makeFormFromProducts, getForm, saveFormResponse, updateSettings, completeOfferRequest } = require("../controller/bidController")
+const { search, expand, makeform, makeFormFromProducts, getForm,submitOfferResponse, saveFormResponse, updateSettings, completeOfferRequest } = require("../controller/bidController")
 const { keycloak, memoryStore } = require('../helpers/keycloak-config');
 
 
@@ -13,5 +13,6 @@ route.post("/search", keycloak.protect(), search)
 route.post("/saveform", keycloak.protect(), saveFormResponse)
 route.post("/update-settings", keycloak.protect(), updateSettings)
 route.post("/complete", keycloak.protect(), completeOfferRequest)
+route.post("/response", keycloak.protect(), submitOfferResponse)
 
 module.exports = route

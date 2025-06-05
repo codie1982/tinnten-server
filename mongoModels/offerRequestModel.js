@@ -21,6 +21,7 @@ const offerRequestSchema = new mongoose.Schema({
 
   isGeneral: { type: Boolean, default: true },
   targetProductId: [{ type: mongoose.Schema.Types.ObjectId, ref: "product", default: null }],
+  targetCompanyId: [{ type: mongoose.Schema.Types.ObjectId, ref: "companyid", default: null }],
   dynamicFormId: { type: mongoose.Schema.Types.ObjectId, ref: "dynamicForm" },
 
   // 🕰️ Teklif Süresi
